@@ -1,9 +1,9 @@
-# WireGuard installer
+# WireGuard Toolkit
 
 ![Lint](https://github.com/angristan/wireguard-install/workflows/Lint/badge.svg)
 [![Say Thanks!](https://img.shields.io/badge/Say%20Thanks-!-1EAEDB.svg)](https://saythanks.io/to/angristan)
 
-**This project is a bash script that aims to setup a [WireGuard](https://www.wireguard.com/) VPN on a Linux server, as easily as possible!**
+Use `wgt` to query WireGuard service status on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
 
 WireGuard is a point-to-point VPN that can be used in different ways. Here, we mean a VPN as in: the client will forward all its traffic through an encrypted tunnel to the server.
 The server will apply NAT to the client's traffic so it will appear as if the client is browsing the web with the server's IP.
@@ -14,7 +14,7 @@ WireGuard does not fit your environment? Check out [openvpn-install](https://git
 
 ## Requirements
 
-Supported distributions:
+Distributions supported by `install.sh`:
 
 - AlmaLinux >= 8
 - Alpine Linux
@@ -40,13 +40,23 @@ Run the script again to add or remove clients!
 
 ### Check whether the service is active
 
-On Linux with systemd, run this command from the checkout.
+On Ubuntu with systemd (`amd64` or `arm64`), run these commands from your existing checkout.
+
+```bash
+git pull
+make install
+wgt status
+```
+
+`make install` builds `wgt` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. Otherwise, it downloads the pinned Go toolchain over HTTPS, verifies its SHA-256 checksum, and caches it for the current user. Install `make` and `curl` on the server and allow HTTPS access to the Go download and module servers for the first build. Installing to `/usr/local/bin` requires write access or `sudo`.
+
+Once installed, run `wgt status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
+
+The checkout also provides a Bash entry point that uses Python 3.
 
 ```bash
 ./status.sh
 ```
-
-The script uses Python 3 to query systemd. It prints `active` and exits with code `0` when the service is running. It prints `inactive` and exits with code `1` when the service is stopped. Other exit codes indicate an unexpected state or a query error, with a diagnostic on stderr.
 
 ### Start or stop the service
 
@@ -86,7 +96,7 @@ Use `./up.sh` when you are ready to start the service. The installer gets the en
 
 ### Select the interface
 
-`status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` use the same interface configuration. The repository default is `wg0`, stored in `config/interface`.
+`wgt status`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgt` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 
@@ -95,7 +105,7 @@ mkdir -p "$HOME/.config/wireguard-scripts"
 printf '%s\n' wg1 >"$HOME/.config/wireguard-scripts/interface"
 ```
 
-Use `$XDG_CONFIG_HOME` in place of `$HOME/.config` if it is set to an absolute path. A missing, unreadable, or empty personal file uses the repository default. Both files contain a single interface name.
+Use `$XDG_CONFIG_HOME` in place of `$HOME/.config` if it is set to an absolute path. A missing, unreadable, or empty personal file falls back to the default. Each file contains a single interface name.
 
 ## Providers
 
@@ -114,6 +124,8 @@ Contributions are welcome! Here's how you can help:
 Please open an issue before submitting a PR if you want to discuss a change, especially if it's a big one.
 
 ### Code formatting
+
+Format Go changes with `gofmt` and run `go test ./...`.
 
 We use [shellcheck](https://github.com/koalaman/shellcheck) and [shfmt](https://github.com/mvdan/sh) to enforce bash styling guidelines and good practices. They are executed for each commit / PR with GitHub Actions, so you can check the configuration [here](https://github.com/angristan/wireguard-install/blob/master/.github/workflows/lint.yml).
 
