@@ -16,11 +16,12 @@
 ## Service and Configuration
 
 - For service maintenance commands, resolve the interface before invoking `systemctl` and target its unit explicitly. Keep status queries read-only and scope service changes to the selected instance.
-- `status.sh`, `port.sh`, `up.sh`, and `down.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
+- `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
 - Reuse this resolver for new interface commands. Treat configuration as plain text and report invalid values on stderr before invoking the underlying command.
 - `status.sh` passes through `systemctl is-active` stdout, stderr, and exit status. Preserve this contract so a valid inactive result retains the underlying nonzero exit status.
-- `port.sh` passes through `sudo wg show <interface> listen-port` stdout, stderr, and exit status for a single interface.
+- With no arguments, `port.sh` passes through `sudo wg show <interface> listen-port` stdout, stderr, and exit status. `port.sh --config <file>` reports the explicit `ListenPort` from a readable configuration file using Python 3.
 - `udp.sh` and `iptables.sh` run without arguments and use `lib/port.sh` to get a five-digit decimal port from `10000` to `65535` by invoking the checkout's `port.sh`. Stop on lookup failure or invalid output. Preserve the native output and exit status of the socket query and `iptables -C` rule check.
+- `random.sh` requires a loaded, inactive service. Generate the preview from a private snapshot of its interface configuration, require the operator to type the new port in the terminal, and recheck the service and original configuration while committing. Keep the file change scoped to the previewed port and installer UDP hooks, with a private backup of the original.
 
 ## Validation
 
