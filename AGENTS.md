@@ -2,8 +2,8 @@
 
 ## Project Context
 
-- This repository contains the Go and Cobra CLI `wgt` and standalone Bash scripts for maintaining WireGuard on Ubuntu servers with systemd. The service unit is `wg-quick@<interface>.service`.
-- Use `make install` to install `wgt` and run `wgt status` from any directory. Run Bash scripts directly from the checkout, for example `./status.sh` or `./install.sh`. Keep Bash entry points in the repository root, use short operation names with a `.sh` extension, and track them as executable.
+- This repository contains the Go and Cobra CLI `wgk` and standalone Bash scripts for maintaining WireGuard on Ubuntu servers with systemd. The service unit is `wg-quick@<interface>.service`.
+- Use `make install` to install `wgk` and run `wgk status` from any directory. Run Bash scripts directly from the checkout, for example `./status.sh` or `./install.sh`. Keep Bash entry points in the repository root, use short operation names with a `.sh` extension, and track them as executable.
 - `install.sh` is the upstream-derived interactive installer and management script. Preserve its existing behavior when adding maintenance scripts. Ubuntu with systemd is the target for new operations.
 
 ## Working Rules
@@ -17,7 +17,7 @@
 
 - For service maintenance commands, resolve the interface before invoking `systemctl` and target its unit explicitly. Keep status queries read-only and scope service changes to the selected instance.
 - `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
-- Reuse the resolver for the command's language. `wgt` reads the same per-user file and has an embedded `wg0` fallback. Treat configuration as plain text and report invalid values on stderr before invoking the underlying command.
+- Reuse the resolver for the command's language. `wgk` reads the same per-user file and has an embedded `wg0` fallback. Treat configuration as plain text and report invalid values on stderr before invoking the underlying command.
 - `status.sh` takes no arguments. It prints `active` with exit code `0` for a loaded, active service and `inactive` with exit code `1` for a loaded, inactive service. Query failures and unexpected states use a distinct exit code with a diagnostic on stderr. Share the systemd state query with `random.sh`.
 - `port.sh` takes no arguments and uses `sudo` and Python 3 to read the explicit `ListenPort` from `/etc/wireguard/<interface>.conf`.
 - `udp.sh` and `iptables.sh` run without arguments and use `lib/port.sh` to get a five-digit decimal port from `10000` to `65535` by invoking the checkout's `port.sh`. Stop on lookup failure or invalid output. Preserve the native output and exit status of the socket query and `iptables -C` rule check.
@@ -25,7 +25,7 @@
 
 ## Validation
 
-- For Go changes, run `gofmt` and `go test ./...`. For installation changes, verify `make install` on a disposable Ubuntu system and run `wgt status` from outside the checkout.
+- For Go changes, run `gofmt` and `go test ./...`. For installation changes, verify `make install` on a disposable Ubuntu system and run `wgk status` from outside the checkout.
 - For shell changes, run `bash -n` on each changed script and run the repository lint checks.
 
   ```bash

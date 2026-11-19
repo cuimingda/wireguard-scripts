@@ -3,7 +3,7 @@
 ![Lint](https://github.com/angristan/wireguard-install/workflows/Lint/badge.svg)
 [![Say Thanks!](https://img.shields.io/badge/Say%20Thanks-!-1EAEDB.svg)](https://saythanks.io/to/angristan)
 
-Use `wgt` to query WireGuard service status on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
+Use `wgk` to query WireGuard service status on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
 
 WireGuard is a point-to-point VPN that can be used in different ways. Here, we mean a VPN as in: the client will forward all its traffic through an encrypted tunnel to the server.
 The server will apply NAT to the client's traffic so it will appear as if the client is browsing the web with the server's IP.
@@ -45,12 +45,12 @@ On Ubuntu with systemd (`amd64` or `arm64`), run these commands from your existi
 ```bash
 git pull
 make install
-wgt status
+wgk status
 ```
 
-`make install` builds `wgt` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. Otherwise, it downloads the pinned Go toolchain over HTTPS, verifies its SHA-256 checksum, and caches it for the current user. Install `make` and `curl` on the server and allow HTTPS access to the Go download and module servers for the first build. Installing to `/usr/local/bin` requires write access or `sudo`.
+`make install` builds `wgk` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. Otherwise, it downloads the pinned Go toolchain over HTTPS, verifies its SHA-256 checksum, and caches it for the current user. Install `make` and `curl` on the server and allow HTTPS access to the Go download and module servers for the first build. Installing to `/usr/local/bin` requires write access or `sudo`.
 
-Once installed, run `wgt status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
+Once installed, run `wgk status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
 
 The checkout also provides a Bash entry point that uses Python 3.
 
@@ -96,7 +96,7 @@ Use `./up.sh` when you are ready to start the service. The installer gets the en
 
 ### Select the interface
 
-`wgt status`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgt` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
+`wgk status`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgk` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 

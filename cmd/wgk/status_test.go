@@ -100,17 +100,17 @@ func stubSystemctl(t *testing.T, properties, exitStatus string) string {
 	bin := t.TempDir()
 	calls := filepath.Join(bin, "systemctl.args")
 	script := `#!/bin/sh
-printf '%s\n' "$@" > "$WGT_TEST_CALLS"
-printf '%s' "$WGT_TEST_PROPERTIES"
-exit "${WGT_TEST_EXIT:-0}"
+printf '%s\n' "$@" > "$WGK_TEST_CALLS"
+printf '%s' "$WGK_TEST_PROPERTIES"
+exit "${WGK_TEST_EXIT:-0}"
 `
 	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	t.Setenv("WGT_TEST_CALLS", calls)
-	t.Setenv("WGT_TEST_PROPERTIES", properties)
-	t.Setenv("WGT_TEST_EXIT", exitStatus)
+	t.Setenv("WGK_TEST_CALLS", calls)
+	t.Setenv("WGK_TEST_PROPERTIES", properties)
+	t.Setenv("WGK_TEST_EXIT", exitStatus)
 	return calls
 }
 

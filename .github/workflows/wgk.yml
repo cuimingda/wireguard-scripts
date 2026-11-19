@@ -1,4 +1,4 @@
-name: wgt
+name: wgk
 
 on: [push, pull_request]
 
@@ -21,24 +21,24 @@ jobs:
       - run: go test ./...
       - name: Install without a usable Go on PATH
         run: |
-          export XDG_CACHE_HOME="$RUNNER_TEMP/wgt-cache"
-          mkdir -p "$RUNNER_TEMP/wgt-stubs"
-          printf '#!/bin/sh\nexit 127\n' > "$RUNNER_TEMP/wgt-stubs/go"
-          chmod +x "$RUNNER_TEMP/wgt-stubs/go"
-          export PATH="$RUNNER_TEMP/wgt-stubs:$PATH"
+          export XDG_CACHE_HOME="$RUNNER_TEMP/wgk-cache"
+          mkdir -p "$RUNNER_TEMP/wgk-stubs"
+          printf '#!/bin/sh\nexit 127\n' > "$RUNNER_TEMP/wgk-stubs/go"
+          chmod +x "$RUNNER_TEMP/wgk-stubs/go"
+          export PATH="$RUNNER_TEMP/wgk-stubs:$PATH"
 
           make install
-          test "$(command -v wgt)" = /usr/local/bin/wgt
+          test "$(command -v wgk)" = /usr/local/bin/wgk
 
-          printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/wgt-stubs/curl"
-          chmod +x "$RUNNER_TEMP/wgt-stubs/curl"
+          printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/wgk-stubs/curl"
+          chmod +x "$RUNNER_TEMP/wgk-stubs/curl"
           make install
       - name: Query real systemd from outside the checkout
         run: |
-          export XDG_CONFIG_HOME="$RUNNER_TEMP/wgt-config"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
           mkdir -p "$XDG_CONFIG_HOME/wireguard-scripts"
-          printf '%s\n' wgt-smoke > "$XDG_CONFIG_HOME/wireguard-scripts/interface"
-          unit=wg-quick@wgt-smoke.service
+          printf '%s\n' wgk-smoke > "$XDG_CONFIG_HOME/wireguard-scripts/interface"
+          unit=wg-quick@wgk-smoke.service
           sudo tee "/run/systemd/system/$unit" >/dev/null <<'UNIT'
           [Service]
           Type=oneshot
@@ -48,11 +48,11 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl start "$unit"
           cd "$RUNNER_TEMP"
-          status=$(wgt status)
+          status=$(wgk status)
           test "$status" = active
 
           sudo systemctl stop "$unit"
           code=0
-          status=$(wgt status) || code=$?
+          status=$(wgk status) || code=$?
           test "$code" -eq 1
           test "$status" = inactive

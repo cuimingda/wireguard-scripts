@@ -15,7 +15,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	root := &cobra.Command{
-		Use:           "wgt",
+		Use:           "wgk",
 		Short:         "Maintain WireGuard on Ubuntu",
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -49,7 +49,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		},
 	})
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(stderr, "wgt: %v\n", err)
+		fmt.Fprintf(stderr, "wgk: %v\n", err)
 		return 2
 	}
 	return exitCode

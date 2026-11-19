@@ -62,10 +62,10 @@ install_binary() (
 	umask 022
 	local binary=$1 destination=$2
 	mkdir -p -- "$destination"
-	staged=$(mktemp -- "$destination/.wgt.XXXXXXXXXX")
+	staged=$(mktemp -- "$destination/.wgk.XXXXXXXXXX")
 	trap 'rm -f -- "$staged"' EXIT
 	install -m 0755 -- "$binary" "$staged"
-	mv -fT -- "$staged" "$destination/wgt"
+	mv -fT -- "$staged" "$destination/wgk"
 )
 
 main() (
@@ -82,19 +82,19 @@ main() (
 		unset GOROOT
 	fi
 
-	build_dir=$(mktemp -d /tmp/wgt-install.XXXXXXXXXX)
+	build_dir=$(mktemp -d /tmp/wgk-install.XXXXXXXXXX)
 	trap 'rm -rf -- "$build_dir"' EXIT
 	GOTOOLCHAIN=local GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
-		"$go" build -mod=readonly -o "$build_dir/wgt" ./cmd/wgt
+		"$go" build -mod=readonly -o "$build_dir/wgk" ./cmd/wgk
 
 	if [[ -n ${DESTDIR:-} || -w $destination || $EUID -eq 0 ]]; then
-		install_binary "$build_dir/wgt" "$destination"
+		install_binary "$build_dir/wgk" "$destination"
 	else
 		command -v sudo >/dev/null || fail "write access to $destination or sudo is required"
 		sudo -- /bin/bash -c "$(declare -f install_binary)
-install_binary \"\$@\"" install-wgt "$build_dir/wgt" "$destination"
+install_binary \"\$@\"" install-wgk "$build_dir/wgk" "$destination"
 	fi
-	printf 'Installed %s/wgt\n' "$destination"
+	printf 'Installed %s/wgk\n' "$destination"
 )
 
 main "$@"
