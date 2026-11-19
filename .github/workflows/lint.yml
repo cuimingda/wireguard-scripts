@@ -17,4 +17,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: mfinelli/setup-shfmt@v3
-      - run: shfmt -d wgs-*.sh
+      - run: shfmt -d ./*.sh

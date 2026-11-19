@@ -31,32 +31,22 @@ Supported distributions:
 Clone this repository on the server and run the installer from the checkout. Answer the prompts to configure WireGuard.
 
 ```bash
-./wgs-install.sh
+./wireguard-install.sh
 ```
 
 It will install WireGuard (kernel module and tools) on the server, configure it, create a systemd service and a client configuration file.
 
 Run the script again to add or remove clients!
 
-### Add the scripts to your PATH
-
-After cloning this repository on the server, run the setup script from the checkout.
-
-```bash
-./wgs-setup.sh
-```
-
-Setup appends the checkout to your account's `PATH` through its login profile. It supports Bash, Zsh, sh, dash, and ash. The `wgs-` prefix identifies the WireGuard scripts. Reconnect over SSH to run commands such as `wgs-is-active.sh` from any directory. To use the scripts in your current session, run the command printed by setup.
-
 ### Check whether the service is active
 
-On Linux with systemd, run this command after setting up your `PATH`.
+On Linux with systemd, run this command from the checkout.
 
 ```bash
-wgs-is-active.sh
+./is-active.sh
 ```
 
-You can also run `./wgs-is-active.sh` from the checkout. The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
+The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 

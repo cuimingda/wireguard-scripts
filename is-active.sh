@@ -1,7 +1,7 @@
 #!/bin/bash
 
 config_error() {
-	printf 'wgs-is-active.sh: %s: %s\n' "$1" "$2" >&2
+	printf 'is-active.sh: %s: %s\n' "$1" "$2" >&2
 	exit 1
 }
 
