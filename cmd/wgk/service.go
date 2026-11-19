@@ -77,7 +77,11 @@ func resolveServiceUnit() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "wg-quick@" + name + ".service", nil
+	return wireGuardServiceUnit(name), nil
+}
+
+func wireGuardServiceUnit(name string) string {
+	return "wg-quick@" + name + ".service"
 }
 
 func newServiceActionCommand(name, description, action string) *cobra.Command {

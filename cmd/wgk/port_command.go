@@ -15,7 +15,7 @@ import (
 func newPortCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "port",
-		Short: "Read and check the WireGuard listen port",
+		Short: "Read, change, and check the WireGuard listen port",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
@@ -29,10 +29,22 @@ func newPortCommand() *cobra.Command {
 			RunE:  runPortGet,
 		},
 		&cobra.Command{
+			Use:   "set <port>",
+			Short: "Change the WireGuard listen port after confirmation",
+			Args:  cobra.ExactArgs(1),
+			RunE:  runPortSet,
+		},
+		&cobra.Command{
 			Use:    "read <interface>",
 			Hidden: true,
 			Args:   cobra.ExactArgs(1),
 			RunE:   runPrivilegedPortRead,
+		},
+		&cobra.Command{
+			Use:    "set-interface <interface> <port>",
+			Hidden: true,
+			Args:   cobra.ExactArgs(2),
+			RunE:   runPrivilegedPortSet,
 		},
 		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(port string) []string {
 			return []string{"-H", "-uln", "sport = :" + port}
@@ -123,9 +135,13 @@ func getPortForCheck(cmd *cobra.Command) (string, error) {
 		return "", preserveProcessExit(fmt.Errorf("run wgk port get: %w", err))
 	}
 	port := strings.TrimRight(string(output), "\n")
-	number, err := strconv.Atoi(port)
-	if len(port) != 5 || err != nil || number < 10000 || number > 65535 {
+	if !validMaintenancePort(port) {
 		return "", errors.New("wgk port get must return a five-digit port (10000-65535)")
 	}
 	return port, nil
+}
+
+func validMaintenancePort(port string) bool {
+	number, err := strconv.ParseUint(port, 10, 16)
+	return len(port) == 5 && err == nil && number >= 10000
 }

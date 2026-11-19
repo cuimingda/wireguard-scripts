@@ -3,38 +3,177 @@ package main
 import (
 	"bytes"
 	"errors"
+	"iter"
+	"regexp"
 	"strconv"
 )
 
+const wireGuardWhitespace = " \t\n\r\v\f"
+
+type wireGuardField struct {
+	key, value  []byte
+	valueOffset int
+	lineNumber  int
+}
+
+type listenPortChange struct {
+	beforePort int
+	lines      []listenPortLineChange
+	updated    []byte
+}
+
+type listenPortLineChange struct {
+	lineNumber    int
+	before, after string
+}
+
+type listenPortEdit struct {
+	start, end     int
+	prefix, suffix string
+}
+
+var (
+	iptablesPortHook = regexp.MustCompile(
+		`^[[:space:]]*iptables[[:space:]]+(-[ID])[[:space:]]+INPUT[[:space:]]+-p[[:space:]]+udp[[:space:]]+` +
+			`--dport[[:space:]]+([0-9]+)[[:space:]]+-j[[:space:]]+ACCEPT[[:space:]]*$`,
+	)
+	firewalldPortHook = regexp.MustCompile(
+		`^[[:space:]]*firewall-cmd[[:space:]]+--zone=public[[:space:]]+--add-interface=[A-Za-z0-9_=+.-]+` +
+			`[[:space:]]*&&[[:space:]]*firewall-cmd[[:space:]]+--(add|remove)-port[[:space:]]+([0-9]+)/udp` +
+			`[[:space:]]*&&[[:space:]]*firewall-cmd[[:space:]]+--(add|remove)-rich-rule=`,
+	)
+)
+
 func parseListenPort(data []byte) (int, error) {
+	port, _, err := findListenPort(data)
+	return port, err
+}
+
+func findListenPort(data []byte) (int, wireGuardField, error) {
 	if bytes.IndexByte(data, 0) >= 0 {
-		return 0, errors.New("configuration contains a NUL byte")
+		return 0, wireGuardField{}, errors.New("configuration contains a NUL byte")
 	}
 
-	const whitespace = " \t\n\r\v\f"
-	var rawPort []byte
-	inInterface := false
+	var portField wireGuardField
 	portFields := 0
-	for line := range bytes.SplitSeq(data, []byte("\n")) {
-		line, _, _ = bytes.Cut(line, []byte("#"))
-		key, value, _ := bytes.Cut(line, []byte("="))
-		key = bytes.Trim(key, whitespace)
-		if bytes.HasPrefix(key, []byte("[")) {
-			inInterface = equalASCIIFold(key, "[interface]")
-		} else if inInterface && equalASCIIFold(key, "listenport") {
-			rawPort = bytes.Trim(value, whitespace)
+	for field := range wireGuardInterfaceFields(data) {
+		if equalASCIIFold(field.key, "listenport") {
+			portField = field
 			portFields++
 		}
 	}
 	if portFields != 1 {
-		return 0, errors.New("expected exactly one ListenPort in [Interface]")
+		return 0, wireGuardField{}, errors.New("expected exactly one ListenPort in [Interface]")
 	}
 
-	port, err := strconv.ParseUint(string(rawPort), 10, 16)
-	if err != nil || port == 0 {
-		return 0, errors.New("ListenPort must be a decimal port from 1 to 65535")
+	port := decimalListenPort(bytes.Trim(portField.value, wireGuardWhitespace))
+	if port == 0 {
+		return 0, wireGuardField{}, errors.New("ListenPort must be a decimal port from 1 to 65535")
 	}
-	return int(port), nil
+	return port, portField, nil
+}
+
+func wireGuardInterfaceFields(data []byte) iter.Seq[wireGuardField] {
+	return func(yield func(wireGuardField) bool) {
+		inInterface := false
+		lineNumber, offset := 0, 0
+		for line := range bytes.SplitSeq(data, []byte("\n")) {
+			lineNumber++
+			start := offset
+			offset += len(line) + 1
+			setting, _, _ := bytes.Cut(line, []byte("#"))
+			rawKey, value, _ := bytes.Cut(setting, []byte("="))
+			key := bytes.Trim(rawKey, wireGuardWhitespace)
+			if bytes.HasPrefix(key, []byte("[")) {
+				inInterface = equalASCIIFold(key, "[interface]")
+			} else if inInterface {
+				if !yield(wireGuardField{
+					key:         key,
+					value:       value,
+					valueOffset: start + len(rawKey) + 1,
+					lineNumber:  lineNumber,
+				}) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func planListenPortChange(data []byte, newPort string) (listenPortChange, error) {
+	if !validMaintenancePort(newPort) {
+		return listenPortChange{}, errInvalidSetPort
+	}
+	oldPort, portField, err := findListenPort(data)
+	if err != nil {
+		return listenPortChange{}, err
+	}
+	change := listenPortChange{beforePort: oldPort, updated: data}
+	oldText := strconv.Itoa(oldPort)
+	if newPort == oldText {
+		return change, nil
+	}
+
+	updated := make([]byte, 0, len(data))
+	previousEnd := 0
+	for field := range wireGuardInterfaceFields(data) {
+		var edit listenPortEdit
+		if field.lineNumber == portField.lineNumber {
+			value := bytes.TrimLeft(field.value, wireGuardWhitespace)
+			start := len(field.value) - len(value)
+			end := start + len(bytes.TrimRight(value, wireGuardWhitespace))
+			edit = listenPortEdit{start: start, end: end, prefix: "ListenPort = "}
+		} else if hookEdit, ok := listenPortHookEdit(field, oldPort); ok {
+			edit = hookEdit
+		} else {
+			continue
+		}
+
+		start, end := field.valueOffset+edit.start, field.valueOffset+edit.end
+		updated = append(updated, data[previousEnd:start]...)
+		updated = append(updated, newPort...)
+		previousEnd = end
+		// Render only known syntax and port numbers. Hooks and comments can contain secrets.
+		change.lines = append(change.lines, listenPortLineChange{
+			lineNumber: field.lineNumber,
+			before:     edit.prefix + oldText + edit.suffix,
+			after:      edit.prefix + newPort + edit.suffix,
+		})
+	}
+	change.updated = append(updated, data[previousEnd:]...)
+	return change, nil
+}
+
+func listenPortHookEdit(field wireGuardField, oldPort int) (listenPortEdit, bool) {
+	var label, iptablesAction, firewalldAction string
+	switch {
+	case equalASCIIFold(field.key, "postup"):
+		label, iptablesAction, firewalldAction = "PostUp", "-I", "add"
+	case equalASCIIFold(field.key, "postdown"):
+		label, iptablesAction, firewalldAction = "PostDown", "-D", "remove"
+	default:
+		return listenPortEdit{}, false
+	}
+
+	value := field.value
+	if match := iptablesPortHook.FindSubmatchIndex(value); match != nil &&
+		bytes.Equal(value[match[2]:match[3]], []byte(iptablesAction)) && decimalListenPort(value[match[4]:match[5]]) == oldPort {
+		return listenPortEdit{match[4], match[5], label + " = iptables " + iptablesAction + " INPUT -p udp --dport ", " -j ACCEPT"}, true
+	}
+	if match := firewalldPortHook.FindSubmatchIndex(value); match != nil &&
+		bytes.Equal(value[match[2]:match[3]], []byte(firewalldAction)) && decimalListenPort(value[match[4]:match[5]]) == oldPort &&
+		bytes.Equal(value[match[6]:match[7]], []byte(firewalldAction)) {
+		return listenPortEdit{match[4], match[5], label + " = firewall-cmd --" + firewalldAction + "-port ", "/udp"}, true
+	}
+	return listenPortEdit{}, false
+}
+
+func decimalListenPort(value []byte) int {
+	port, err := strconv.ParseUint(string(value), 10, 16)
+	if err != nil {
+		return 0
+	}
+	return int(port)
 }
 
 func equalASCIIFold(value []byte, ascii string) bool {
