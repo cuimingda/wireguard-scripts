@@ -46,7 +46,19 @@ On Linux with systemd, run this command from the checkout.
 ./status.sh
 ```
 
-The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
+The script returns the output and exit code of `systemctl is-active`.
+
+### Show the listen port
+
+```bash
+./port.sh
+```
+
+The script runs `sudo wg show <interface> listen-port` and returns its output and exit code. `wg show` reserves `all` and `interfaces`, so `port.sh` reports an error for these names.
+
+### Select the interface
+
+`status.sh` and `port.sh` use the same interface configuration. The repository default is `wg0`, stored in `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 
