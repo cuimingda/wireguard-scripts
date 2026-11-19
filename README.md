@@ -14,6 +14,8 @@ WireGuard does not fit your environment? Check out [openvpn-install](https://git
 
 ## Requirements
 
+Every `wgk` invocation, including `wgk --help`, requires Ubuntu Linux. At startup, `wgk` checks for `ID=ubuntu` in `/etc/os-release` or, if that file is missing, `/usr/lib/os-release`. If it cannot confirm Ubuntu, it prints a diagnostic to stderr and exits with code `2`.
+
 Distributions supported by `install.sh`:
 
 - AlmaLinux >= 8

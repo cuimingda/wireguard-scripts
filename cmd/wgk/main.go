@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	if err := checkUbuntu(runtime.GOOS, os.ReadFile); err != nil {
+		fmt.Fprintf(os.Stderr, "wgk: %v\n", err)
+		os.Exit(2)
+	}
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
