@@ -89,12 +89,27 @@ This prints `/etc/wireguard/wg0.conf` for the default interface. It uses the sam
 ### Show the listen port
 
 ```bash
+wgk port get
+```
+
+This prints the explicit `ListenPort` in the `[Interface]` section of the file selected by `wgk path`. It works while the service is running or stopped. If reading the file requires root access, `wgk` uses `sudo` for the read.
+
+The checkout also provides a Bash entry point that uses `sudo` and Python 3.
+
+```bash
 ./port.sh
 ```
 
-The script uses `sudo` and Python 3 to read `ListenPort` from `/etc/wireguard/<interface>.conf`. The same command works while the service is running or stopped.
-
 ### Check a UDP port
+
+```bash
+wgk port udp
+wgk port iptables
+```
+
+Both commands call `wgk port get` and require a five-digit port from `10000` to `65535`. `wgk port udp` uses `ss` to list matching local UDP sockets. `wgk port iptables` uses `iptables -C` to check for the UDP `ACCEPT` rule in the `INPUT` chain. They pass through the underlying command's stdout, stderr, and exit status.
+
+The checkout also provides the corresponding Bash entry points.
 
 ```bash
 ./udp.sh

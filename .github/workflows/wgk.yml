@@ -68,3 +68,33 @@ jobs:
           check_status active 0
           sudo -- /usr/bin/env XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/wgk down
           check_status inactive 1
+      - name: Read the WireGuard port and compare native checks
+        run: |
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
+          cd "$RUNNER_TEMP"
+          port=45555
+          printf '[Interface]\nListenPort = %s\n' "$port" > wgk-smoke.conf
+          sudo -- mkdir -p /etc/wireguard
+          sudo -- install -m 0600 wgk-smoke.conf /etc/wireguard/wgk-smoke.conf
+
+          configured_port=$(wgk port get)
+          test "$configured_port" = "$port"
+          sudo -- ss --version >/dev/null
+          sudo -- iptables --version >/dev/null
+
+          compare_check() {
+            local check=$1 native_status=0 wrapper_status=0
+            shift
+            sudo -- "$@" > native.stdout 2> native.stderr || native_status=$?
+            wgk port "$check" > wgk.stdout 2> wgk.stderr || wrapper_status=$?
+            if [[ $native_status != "$wrapper_status" ]]; then
+              printf '%s returned %s via wgk, expected %s\n' "$check" "$wrapper_status" "$native_status" >&2
+              cat wgk.stderr >&2
+              return 1
+            fi
+            diff -u native.stdout wgk.stdout
+            diff -u native.stderr wgk.stderr
+          }
+
+          compare_check udp ss -H -uln "sport = :$port"
+          compare_check iptables iptables -C INPUT -p udp --dport "$port" -j ACCEPT

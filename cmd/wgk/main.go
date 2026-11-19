@@ -64,12 +64,13 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "/etc/wireguard/%s.conf\n", name)
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), wireGuardConfigPath(name))
 			return err
 		},
 	})
 	root.AddCommand(
 		newConfigCommand(),
+		newPortCommand(),
 		newServiceCommand("up", "Start the WireGuard service", "start"),
 		newServiceCommand("down", "Stop the WireGuard service", "stop"),
 	)

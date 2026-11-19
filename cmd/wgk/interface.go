@@ -21,6 +21,10 @@ func resolveInterface() (string, error) {
 	return "", fmt.Errorf("invalid interface name in configuration")
 }
 
+func wireGuardConfigPath(name string) string {
+	return filepath.Join("/etc/wireguard", name+".conf")
+}
+
 func validInterfaceName(name string) bool {
 	return interfaceName.MatchString(name) && name != "." && name != ".."
 }
