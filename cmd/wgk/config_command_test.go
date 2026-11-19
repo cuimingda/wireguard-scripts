@@ -101,11 +101,11 @@ func TestConfigCommandMigratesLegacyInterface(t *testing.T) {
 
 	writeTestInterface(t, legacyDir, "wg*\n")
 	calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
-	checkStatus(t, []string{"status"}, "active\n", "", 0)
+	checkStatus(t, []string{"service", "status"}, "active\n", "", 0)
 	checkQuery(t, calls, "wg-yaml")
 	writeTestInterface(t, legacyDir, "wg-legacy\n")
 	checkConfigCommand(t, "", "", "unset", "interface")
-	checkStatus(t, []string{"status"}, "active\n", "", 0)
+	checkStatus(t, []string{"service", "status"}, "active\n", "", 0)
 	checkQuery(t, calls, "wg-legacy")
 }
 
@@ -155,12 +155,12 @@ func TestInvalidYAMLConfigStopsServiceCommands(t *testing.T) {
 			}
 			checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
 			calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
-			checkStatus(t, []string{"status"}, "", tc.wantError, 2)
+			checkStatus(t, []string{"service", "status"}, "", tc.wantError, 2)
 			if _, err := os.Stat(calls); !os.IsNotExist(err) {
 				t.Fatalf("expected no systemctl invocation, log lookup returned %v", err)
 			}
 			calls, sudoCalls := stubServiceCommands(t)
-			checkStatus(t, []string{"up"}, "", tc.wantError, 2)
+			checkStatus(t, []string{"service", "up"}, "", tc.wantError, 2)
 			for _, log := range []string{calls, sudoCalls} {
 				if _, err := os.Stat(log); !os.IsNotExist(err) {
 					t.Errorf("expected no service invocation, log lookup for %s returned %v", log, err)

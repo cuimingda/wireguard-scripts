@@ -31,7 +31,7 @@ func TestStatus(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", "")
 			calls := stubSystemctl(t, tc.properties, tc.queryExit)
-			checkStatus(t, []string{"status"}, tc.wantOutput, tc.wantError, tc.wantExit)
+			checkStatus(t, []string{"service", "status"}, tc.wantOutput, tc.wantError, tc.wantExit)
 			checkQuery(t, calls, "wg0")
 		})
 	}
@@ -64,7 +64,7 @@ func TestStatusUsesConfiguredInterface(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", tc.xdg)
 			calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
-			checkStatus(t, []string{"status"}, "active\n", "", 0)
+			checkStatus(t, []string{"service", "status"}, "active\n", "", 0)
 			checkQuery(t, calls, tc.wantTarget)
 		})
 	}
@@ -77,10 +77,10 @@ func TestStatusRejectsInvalidInterfaceAndArguments(t *testing.T) {
 		args           []string
 		wantError      string
 	}{
-		{name: "multiline", interfaceValue: "wg0\nwg1\n", args: []string{"status"}, wantError: "invalid interface name"},
-		{name: "nul", interfaceValue: "wg0\x00", args: []string{"status"}, wantError: "invalid interface name"},
-		{name: "parent component", interfaceValue: "..\n", args: []string{"status"}, wantError: "invalid interface name"},
-		{name: "extra argument", interfaceValue: "wg0", args: []string{"status", "wg1"}, wantError: "wg1"},
+		{name: "multiline", interfaceValue: "wg0\nwg1\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "nul", interfaceValue: "wg0\x00", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "parent component", interfaceValue: "..\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "extra argument", interfaceValue: "wg0", args: []string{"service", "status", "wg1"}, wantError: "wg1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xdg := t.TempDir()

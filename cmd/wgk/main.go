@@ -33,46 +33,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
-	root.AddCommand(&cobra.Command{
-		Use:   "status",
-		Short: "Show whether the WireGuard service is active",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			unit, err := resolveServiceUnit()
-			if err != nil {
-				return err
-			}
-			state, err := serviceStatus(cmd.Context(), unit, cmd.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), state); err != nil {
-				return err
-			}
-			if state == "inactive" {
-				return exitStatus(1)
-			}
-			return nil
-		},
-	})
-	root.AddCommand(&cobra.Command{
-		Use:   "path",
-		Short: "Print the WireGuard interface configuration path",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			name, err := resolveInterface()
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), wireGuardConfigPath(name))
-			return err
-		},
-	})
 	root.AddCommand(
 		newConfigCommand(),
 		newPortCommand(),
-		newServiceCommand("up", "Start the WireGuard service", "start"),
-		newServiceCommand("down", "Stop the WireGuard service", "stop"),
+		newServiceCommand(),
 	)
 	if err := root.ExecuteContext(ctx); err != nil {
 		var status exitStatus

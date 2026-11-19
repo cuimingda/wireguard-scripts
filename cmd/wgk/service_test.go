@@ -32,7 +32,7 @@ func TestServiceCommands(t *testing.T) {
 			t.Setenv("WGK_ACTION_EXIT", tc.nativeExit)
 
 			var stdout, stderr bytes.Buffer
-			if code := run(context.Background(), []string{tc.command}, strings.NewReader("input\n"), &stdout, &stderr); code != tc.wantExit {
+			if code := run(context.Background(), []string{"service", tc.command}, strings.NewReader("input\n"), &stdout, &stderr); code != tc.wantExit {
 				t.Errorf("exit code = %d, want %d; stderr = %q", code, tc.wantExit, stderr.String())
 			}
 			if got := stdout.String(); got != "input\n" {
@@ -61,8 +61,8 @@ func TestServiceCommandsRejectInvalidInput(t *testing.T) {
 		interfaceValue string
 		wantError      string
 	}{
-		{name: "extra argument", args: []string{"up", "wg1"}, wantError: "wg1"},
-		{name: "invalid interface", args: []string{"down"}, interfaceValue: "wg*", wantError: "invalid interface name"},
+		{name: "extra argument", args: []string{"service", "up", "wg1"}, wantError: "wg1"},
+		{name: "invalid interface", args: []string{"service", "down"}, interfaceValue: "wg*", wantError: "invalid interface name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := t.TempDir()
@@ -89,11 +89,27 @@ func TestServiceCommandLaunchFailure(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	var stdout, stderr bytes.Buffer
-	if got := run(context.Background(), []string{"up"}, nil, &stdout, &stderr); got != 2 {
+	if got := run(context.Background(), []string{"service", "up"}, nil, &stdout, &stderr); got != 2 {
 		t.Errorf("exit code = %d, want 2", got)
 	}
 	if got := stderr.String(); !strings.Contains(got, "could not start wg-quick@wg0.service") {
 		t.Errorf("stderr = %q, want a launch diagnostic", got)
+	}
+}
+
+func TestFormerRootServiceCommandsAreRejected(t *testing.T) {
+	for _, command := range []string{"path", "up", "down", "status"} {
+		t.Run(command, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			calls, sudoCalls := stubServiceCommands(t)
+
+			checkStatus(t, []string{command}, "", "unknown command", 2)
+			for _, log := range []string{calls, sudoCalls} {
+				if _, err := os.Stat(log); !os.IsNotExist(err) {
+					t.Errorf("expected no invocation, log lookup for %s returned %v", log, err)
+				}
+			}
+		})
 	}
 }
 

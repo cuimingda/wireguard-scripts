@@ -38,13 +38,13 @@ jobs:
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
           default_config=$(wgk config list --default)
           test "$default_config" = 'interface=wg0'
-          default_path=$(wgk path)
+          default_path=$(wgk service config path)
           test "$default_path" = /etc/wireguard/wg0.conf
           set_result=$(wgk config set interface wgk-smoke)
           test -z "$set_result"
           configured_interface=$(wgk config get interface)
           test "$configured_interface" = wgk-smoke
-          configured_path=$(wgk path)
+          configured_path=$(wgk service config path)
           test "$configured_path" = /etc/wireguard/wgk-smoke.conf
           unit=wg-quick@wgk-smoke.service
           sudo tee "/run/systemd/system/$unit" >/dev/null <<'UNIT'
@@ -58,15 +58,15 @@ jobs:
 
           check_status() {
             local expected_status=$1 expected_code=$2 status code=0
-            status=$(wgk status) || code=$?
+            status=$(wgk service status) || code=$?
             test "$code" -eq "$expected_code"
             test "$status" = "$expected_status"
           }
 
           check_status inactive 1
-          wgk up
+          wgk service up
           check_status active 0
-          sudo -- /usr/bin/env XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/wgk down
+          sudo -- /usr/bin/env XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/wgk service down
           check_status inactive 1
       - name: Read the WireGuard port and compare native checks
         run: |

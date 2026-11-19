@@ -45,12 +45,12 @@ Install Make on Ubuntu with systemd (`amd64` or `arm64`), then run these command
 ```bash
 git pull
 make install
-wgk status
+wgk service status
 ```
 
 `make install` builds `wgk` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. When it needs to download Go, it uses `curl` over HTTPS, verifies the pinned toolchain's SHA-256 checksum, and caches it for the current user. The first build needs HTTPS access to the Go module servers. Installing to `/usr/local/bin` requires write access or `sudo`.
 
-Once installed, run `wgk status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
+Once installed, run `wgk service status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
 
 The checkout also provides a Bash entry point that uses Python 3.
 
@@ -60,11 +60,11 @@ The checkout also provides a Bash entry point that uses Python 3.
 
 ### Start or stop the service
 
-After installing `wgk`, run `wgk up` to start the configured WireGuard service or `wgk down` to stop it.
+After installing `wgk`, run `wgk service up` to start the configured WireGuard service or `wgk service down` to stop it.
 
 ```bash
-wgk up
-wgk down
+wgk service up
+wgk service down
 ```
 
 Both commands run `systemctl` directly as root and use `sudo` for other users. They pass through the underlying command's output and exit status.
@@ -81,10 +81,10 @@ These scripts run `sudo systemctl start` and `sudo systemctl stop` for the confi
 ### Show the WireGuard configuration path
 
 ```bash
-wgk path
+wgk service config path
 ```
 
-This prints `/etc/wireguard/wg0.conf` for the default interface. It uses the same effective interface setting as `wgk status` and can be run before the WireGuard configuration file is created.
+This prints `/etc/wireguard/wg0.conf` for the default interface. It uses the same effective interface setting as `wgk service status` and can be run before the WireGuard configuration file is created.
 
 ### Show the listen port
 
@@ -92,7 +92,7 @@ This prints `/etc/wireguard/wg0.conf` for the default interface. It uses the sam
 wgk port get
 ```
 
-This prints the explicit `ListenPort` in the `[Interface]` section of the file selected by `wgk path`. It works while the service is running or stopped. If reading the file requires root access, `wgk` uses `sudo` for the read.
+This prints the explicit `ListenPort` in the `[Interface]` section of the file selected by `wgk service config path`. It works while the service is running or stopped. If reading the file requires root access, `wgk` uses `sudo` for the read.
 
 The checkout also provides a Bash entry point that uses `sudo` and Python 3.
 
@@ -130,7 +130,7 @@ Use `./up.sh` when you are ready to start the service. The installer gets the en
 
 ### Select the interface
 
-`wgk status`, `wgk up`, and `wgk down` use the `interface` setting from an embedded default configuration. The default is `wg0`. Set a user override and check the resolved value with these commands.
+The `wgk service` commands use the `interface` setting from an embedded default configuration. The default is `wg0`. Set a user override and check the resolved value with these commands.
 
 ```bash
 wgk config set interface wg1
