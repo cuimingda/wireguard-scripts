@@ -13,7 +13,7 @@ class PortChangeError(Exception):
     pass
 
 
-def require_inactive(unit):
+def read_unit_states(unit):
     result = subprocess.run(
         ["systemctl", "show", "--property=LoadState", "--property=ActiveState", "--", unit],
         stdout=subprocess.PIPE,
@@ -32,11 +32,26 @@ def require_inactive(unit):
     if len(properties) != 2:
         raise PortChangeError("missing systemctl state for {}".format(unit))
 
-    load_state = properties[b"LoadState"]
-    active_state = properties[b"ActiveState"]
+    return properties[b"LoadState"], properties[b"ActiveState"]
+
+
+def describe_unit_states(unit, load_state, active_state):
+    return "{} has LoadState={} and ActiveState={}".format(unit, load_state, active_state)
+
+
+def report_status(unit):
+    load_state, active_state = read_unit_states(unit)
+    if load_state != "loaded" or active_state not in {"active", "inactive"}:
+        raise PortChangeError(describe_unit_states(unit, load_state, active_state))
+    print(active_state)
+    return 0 if active_state == "active" else 1
+
+
+def require_inactive(unit):
+    load_state, active_state = read_unit_states(unit)
     if load_state == "loaded" and active_state == "inactive":
         return
-    message = "{} has LoadState={} and ActiveState={}".format(unit, load_state, active_state)
+    message = describe_unit_states(unit, load_state, active_state)
     if active_state in {"active", "activating", "deactivating", "reloading", "refreshing"}:
         message += ". Stop it manually with ./down.sh and run ./random.sh again"
     raise PortChangeError(message)
@@ -122,7 +137,10 @@ def commit(unit, config, original_file, candidate_file, original_digest, candida
 
 
 def main(args):
+    status_requested = len(args) == 2 and args[0] == "status"
     try:
+        if status_requested:
+            return report_status(args[1])
         if len(args) == 2 and args[0] == "check":
             require_inactive(args[1])
         elif len(args) == 2 and args[0] == "snapshot":
@@ -133,8 +151,9 @@ def main(args):
         else:
             raise PortChangeError("invalid internal port-change invocation")
     except (OSError, PortChangeError) as error:
-        print("random.sh: {}".format(error), file=sys.stderr)
-        return 1
+        script = "status.sh" if status_requested else "random.sh"
+        print("{}: {}".format(script, error), file=sys.stderr)
+        return 2 if status_requested else 1
     return 0
 
 

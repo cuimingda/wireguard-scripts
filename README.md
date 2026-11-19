@@ -46,7 +46,7 @@ On Linux with systemd, run this command from the checkout.
 ./status.sh
 ```
 
-The script returns the output and exit code of `systemctl is-active`.
+The script uses Python 3 to query systemd. It prints `active` and exits with code `0` when the service is running. It prints `inactive` and exits with code `1` when the service is stopped. Other exit codes indicate an unexpected state or a query error, with a diagnostic on stderr.
 
 ### Start or stop the service
 
@@ -63,9 +63,7 @@ These scripts run `sudo systemctl start` and `sudo systemctl stop` for the confi
 ./port.sh
 ```
 
-The script runs `sudo wg show <interface> listen-port` and returns its output and exit code. `wg show` reserves `all` and `interfaces`, so `port.sh` reports an error for these names.
-
-Use `./port.sh --config <file>` to read `ListenPort` from a readable configuration file while the interface is stopped. This mode requires Python 3.
+The script uses `sudo` and Python 3 to read `ListenPort` from `/etc/wireguard/<interface>.conf`. The same command works while the service is running or stopped.
 
 ### Check a UDP port
 
@@ -74,7 +72,7 @@ Use `./port.sh --config <file>` to read `ListenPort` from a readable configurati
 ./iptables.sh
 ```
 
-Both scripts run without arguments and call `port.sh` to get the configured WireGuard interface's listen port. The returned port must be a five-digit decimal number from `10000` to `65535`.
+Both scripts run without arguments and call `port.sh` to get the configured WireGuard port from disk. The returned port must be a five-digit decimal number from `10000` to `65535`.
 
 `udp.sh` lists matching local UDP sockets using `ss`. `iptables.sh` uses `iptables -C` to check for a matching UDP `ACCEPT` rule in the `INPUT` chain. Each check passes through its underlying command's output and exit code.
 

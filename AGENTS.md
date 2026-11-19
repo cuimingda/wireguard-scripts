@@ -18,10 +18,10 @@
 - For service maintenance commands, resolve the interface before invoking `systemctl` and target its unit explicitly. Keep status queries read-only and scope service changes to the selected instance.
 - `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
 - Reuse this resolver for new interface commands. Treat configuration as plain text and report invalid values on stderr before invoking the underlying command.
-- `status.sh` passes through `systemctl is-active` stdout, stderr, and exit status. Preserve this contract so a valid inactive result retains the underlying nonzero exit status.
-- With no arguments, `port.sh` passes through `sudo wg show <interface> listen-port` stdout, stderr, and exit status. `port.sh --config <file>` reports the explicit `ListenPort` from a readable configuration file using Python 3.
+- `status.sh` takes no arguments. It prints `active` with exit code `0` for a loaded, active service and `inactive` with exit code `1` for a loaded, inactive service. Query failures and unexpected states use a distinct exit code with a diagnostic on stderr. Share the systemd state query with `random.sh`.
+- `port.sh` takes no arguments and uses `sudo` and Python 3 to read the explicit `ListenPort` from `/etc/wireguard/<interface>.conf`.
 - `udp.sh` and `iptables.sh` run without arguments and use `lib/port.sh` to get a five-digit decimal port from `10000` to `65535` by invoking the checkout's `port.sh`. Stop on lookup failure or invalid output. Preserve the native output and exit status of the socket query and `iptables -C` rule check.
-- `random.sh` requires a loaded, inactive service. Generate the preview from a private snapshot of its interface configuration, require the operator to type the new port in the terminal, and recheck the service and original configuration while committing. Keep the file change scoped to the previewed port and installer UDP hooks, with a private backup of the original.
+- `random.sh` requires a loaded, inactive service. Read the old port through `port.sh` and verify it against the private configuration snapshot used for the preview. Require the operator to type the new port in the terminal and recheck the service and original configuration while committing. Keep the file change scoped to the previewed port and installer UDP hooks, with a private backup of the original.
 
 ## Validation
 

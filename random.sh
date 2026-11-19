@@ -23,6 +23,7 @@ python3 -I "$change_helper" check "$unit"
 if ! { exec 3<>/dev/tty; } 2>/dev/null; then
 	fail 'confirmation requires a terminal'
 fi
+old=$("$script_dir/port.sh")
 
 umask 077
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/wireguard-port.XXXXXXXXXX")
@@ -36,7 +37,6 @@ candidate="$work_dir/candidate"
 # Store the privileged read in the caller's private temporary directory.
 # shellcheck disable=SC2024
 sudo -- python3 -I "$change_helper" snapshot "$config" >"$original"
-old=$("$script_dir/port.sh" --config "$original")
 
 ports=$(shuf -i 10000-65535 -n 2)
 new=${ports%%$'\n'*}
