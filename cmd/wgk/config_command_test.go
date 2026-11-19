@@ -16,11 +16,12 @@ func TestConfigCommandLayers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "relative")
-	path := filepath.Join(home, ".config", "mingda.dev", "wireguard-toolkit", "config.yaml")
+	path := filepath.Join(home, ".config", "wireguard-scripts", "config.yaml")
 
 	checkConfigCommand(t, path+"\n", "", "path")
-	checkConfigCommand(t, "interface=wg0\n", "", "list")
-	checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
+	defaults := embeddedDefaultList(t)
+	checkConfigCommand(t, defaults, "", "list")
+	checkConfigCommand(t, defaults, "", "list", "--default")
 	checkConfigCommand(t, "", "", "list", "--user")
 	checkConfigCommand(t, "", "", "list", "--filter", "missing")
 	checkConfigCommand(t, "wg0\n", "", "get", "interface")
@@ -31,8 +32,9 @@ func TestConfigCommandLayers(t *testing.T) {
 	checkConfigCommand(t, "", "", "set", "interface", "wg2")
 	checkConfigCommand(t, "", "", "set", "network.retries", "3")
 	checkConfigCommand(t, "", "", "set", "network.enabled", "true")
-	checkConfigCommand(t, "interface=wg2\nnetwork.enabled=true\nnetwork.retries=3\n", "", "list")
-	checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
+	checkConfigCommand(t, "interface=wg2\nnetwork.enabled=true\nnetwork.retries=3\n", "", "list", "--user")
+	checkConfigCommand(t, "interface=wg2\n", "", "list", "--filter", "interface")
+	checkConfigCommand(t, defaults, "", "list", "--default")
 	checkConfigCommand(t, "interface=wg2\n", "", "list", "--user", "--filter", "interface")
 	checkConfigCommand(t, "network.retries=3\n", "", "list", "--filter", "network.retries")
 	checkConfigCommand(t, "3\n", "", "get", "network.retries")
@@ -49,10 +51,22 @@ func TestConfigCommandLayers(t *testing.T) {
 	checkConfigCommand(t, "", "--api", "path", "--api")
 }
 
+func embeddedDefaultList(t *testing.T) string {
+	t.Helper()
+	settings, err := readConfigYAML(defaultConfigYAML, "embedded default configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	if err := writeConfigList(&output, settings); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
+}
+
 func TestConfigCommandRendersComplexValuesOnOneLine(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	path := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml")
 	peers := []string{
 		"wg-first-remote-peer",
 		"wg-second-remote-peer",
@@ -60,13 +74,8 @@ func TestConfigCommandRendersComplexValuesOnOneLine(t *testing.T) {
 		"wg-fourth-remote-peer",
 		"wg-fifth-remote-peer",
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	content := "note: \"line one\\nline two\"\npeers: [" + strings.Join(peers, ", ") + "]\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestConfig(t, xdg, content)
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"config", "list", "--user"}, nil, &stdout, &stderr)
@@ -88,31 +97,43 @@ func TestConfigCommandRendersComplexValuesOnOneLine(t *testing.T) {
 	checkConfigCommand(t, strings.TrimPrefix(lines[1], "peers=")+"\n", "", "get", "peers")
 }
 
-func TestConfigCommandMigratesLegacyInterface(t *testing.T) {
+func TestConfigCommandUsesOnlyCurrentUserYAML(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	path := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml")
-	legacyDir := filepath.Join(xdg, "wireguard-scripts")
-	writeTestInterface(t, legacyDir, "wg-legacy\n")
+	path := filepath.Join(xdg, "wireguard-scripts", "config.yaml")
+	obsolete := map[string]string{
+		filepath.Join(xdg, "wireguard-scripts", "interface"):                 "wg-legacy\n",
+		filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml"): "interface: wg-old-yaml\n",
+	}
+	for file, contents := range obsolete {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	checkConfigCommand(t, path+"\n", "", "path")
+	checkConfigCommand(t, "wg0\n", "", "get", "interface")
+	checkConfigCommand(t, "", "", "list", "--user")
 	checkConfigCommand(t, path+"\n", "", "init")
-	checkConfigCommand(t, "interface=wg-legacy\n", "", "list", "--user")
+	checkConfigCommand(t, embeddedDefaultList(t), "", "list", "--user")
 	checkConfigCommand(t, "", "", "set", "interface", "wg-yaml")
 	checkConfigCommand(t, "", "exists", "init")
 
-	writeTestInterface(t, legacyDir, "wg*\n")
 	calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
 	checkStatus(t, []string{"service", "status"}, "active\n", "", 0)
 	checkQuery(t, calls, "wg-yaml")
-	writeTestInterface(t, legacyDir, "wg-legacy\n")
 	checkConfigCommand(t, "", "", "unset", "interface")
 	checkStatus(t, []string{"service", "status"}, "active\n", "", 0)
-	checkQuery(t, calls, "wg-legacy")
+	checkQuery(t, calls, "wg0")
 }
 
 func TestConfigCommandEdit(t *testing.T) {
 	xdg := filepath.Join(t.TempDir(), "settings directory")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	path := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml")
+	path := filepath.Join(xdg, "wireguard-scripts", "config.yaml")
 	editor := filepath.Join(t.TempDir(), "mock editor")
 	script := `#!/bin/sh
 [ "$1" = "--confirm edit" ] && [ "$#" -eq 2 ] || exit 2
@@ -145,15 +166,8 @@ func TestInvalidYAMLConfigStopsServiceCommands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			xdg := t.TempDir()
 			t.Setenv("XDG_CONFIG_HOME", xdg)
-			writeTestInterface(t, filepath.Join(xdg, "wireguard-scripts"), "wg-legacy\n")
-			configDir := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit")
-			if err := os.MkdirAll(configDir, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(tc.content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
+			writeTestConfig(t, xdg, tc.content)
+			checkConfigCommand(t, "interface=wg0\n", "", "list", "--default", "--filter", "interface")
 			calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
 			checkStatus(t, []string{"service", "status"}, "", tc.wantError, 2)
 			if _, err := os.Stat(calls); !os.IsNotExist(err) {

@@ -36,12 +36,15 @@ jobs:
       - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
-          default_config=$(wgk config list --default)
-          test "$default_config" = 'interface=wg0'
+          default_interface=$(wgk config list --default --filter interface)
+          test "$default_interface" = 'interface=wg0'
           default_path=$(wgk service config path)
           test "$default_path" = /etc/wireguard/wg0.conf
           set_result=$(wgk config set interface wgk-smoke)
           test -z "$set_result"
+          user_config=$(wgk config path)
+          test "$user_config" = "$XDG_CONFIG_HOME/wireguard-scripts/config.yaml"
+          test -f "$user_config"
           configured_interface=$(wgk config get interface)
           test "$configured_interface" = wgk-smoke
           configured_path=$(wgk service config path)

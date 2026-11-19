@@ -38,28 +38,23 @@ func TestStatus(t *testing.T) {
 }
 
 func TestStatusUsesConfiguredInterface(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	xdg := t.TempDir()
-	homeConfig := filepath.Join(os.Getenv("HOME"), ".config", "wireguard-scripts")
-	xdgConfig := filepath.Join(xdg, "wireguard-scripts")
-	writeTestInterface(t, homeConfig, "wg1\n")
-	writeTestInterface(t, xdgConfig, "wg-test.2")
+	writeTestConfig(t, filepath.Join(home, ".config"), "interface: wg1\n")
+	writeTestConfig(t, xdg, "interface: wg-test.2\n")
 	emptyXDG := t.TempDir()
-	writeTestInterface(t, filepath.Join(emptyXDG, "wireguard-scripts"), "\n")
-	directoryXDG := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(directoryXDG, "wireguard-scripts", "interface"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeTestConfig(t, emptyXDG, "\n")
 	for _, tc := range []struct {
 		name       string
 		xdg        string
 		wantTarget string
 	}{
 		{name: "absolute XDG home", xdg: xdg, wantTarget: "wg-test.2"},
+		{name: "unset XDG home", wantTarget: "wg1"},
 		{name: "relative XDG home", xdg: "relative", wantTarget: "wg1"},
-		{name: "missing override in absolute XDG home", xdg: t.TempDir(), wantTarget: "wg0"},
-		{name: "empty override", xdg: emptyXDG, wantTarget: "wg0"},
-		{name: "nonregular override", xdg: directoryXDG, wantTarget: "wg0"},
+		{name: "missing YAML in absolute XDG home", xdg: t.TempDir(), wantTarget: "wg0"},
+		{name: "empty YAML", xdg: emptyXDG, wantTarget: "wg0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", tc.xdg)
@@ -72,20 +67,21 @@ func TestStatusUsesConfiguredInterface(t *testing.T) {
 
 func TestStatusRejectsInvalidInterfaceAndArguments(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		interfaceValue string
-		args           []string
-		wantError      string
+		name      string
+		config    string
+		args      []string
+		wantError string
 	}{
-		{name: "multiline", interfaceValue: "wg0\nwg1\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
-		{name: "nul", interfaceValue: "wg0\x00", args: []string{"service", "status"}, wantError: "invalid interface name"},
-		{name: "parent component", interfaceValue: "..\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
-		{name: "extra argument", interfaceValue: "wg0", args: []string{"service", "status", "wg1"}, wantError: "wg1"},
+		{name: "multiline", config: "interface: |\n  wg0\n  wg1\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "nul", config: "interface: \"wg0\\0\"\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "parent component", config: "interface: '..'\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "non-string", config: "interface: [wg0]\n", args: []string{"service", "status"}, wantError: "invalid interface name"},
+		{name: "extra argument", config: "interface: wg0\n", args: []string{"service", "status", "wg1"}, wantError: "wg1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xdg := t.TempDir()
 			t.Setenv("XDG_CONFIG_HOME", xdg)
-			writeTestInterface(t, filepath.Join(xdg, "wireguard-scripts"), tc.interfaceValue)
+			writeTestConfig(t, xdg, tc.config)
 			calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
 			checkStatus(t, tc.args, "", tc.wantError, 2)
 			if _, err := os.Stat(calls); !os.IsNotExist(err) {
@@ -140,12 +136,13 @@ func checkStatus(t *testing.T, args []string, wantOutput, wantError string, want
 	}
 }
 
-func writeTestInterface(t *testing.T, dir, name string) {
+func writeTestConfig(t *testing.T, configHome, contents string) {
 	t.Helper()
+	dir := filepath.Join(configHome, "wireguard-scripts")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "interface"), []byte(name), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

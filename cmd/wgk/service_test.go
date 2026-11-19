@@ -11,22 +11,22 @@ import (
 
 func TestServiceCommands(t *testing.T) {
 	for _, tc := range []struct {
-		command        string
-		action         string
-		interfaceValue string
-		unit           string
-		nativeExit     string
-		wantExit       int
+		command    string
+		action     string
+		config     string
+		unit       string
+		nativeExit string
+		wantExit   int
 	}{
 		{command: "up", action: "start", unit: "wg-quick@wg0.service", nativeExit: "0"},
-		{command: "down", action: "stop", interfaceValue: "wg-test.2\n", unit: "wg-quick@wg-test.2.service", nativeExit: "5", wantExit: 5},
+		{command: "down", action: "stop", config: "interface: wg-test.2\n", unit: "wg-quick@wg-test.2.service", nativeExit: "5", wantExit: 5},
 		{command: "up", action: "start", unit: "wg-quick@wg0.service", nativeExit: "signal", wantExit: 143},
 	} {
 		t.Run(tc.command+"-"+tc.nativeExit, func(t *testing.T) {
-			config := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", config)
-			if tc.interfaceValue != "" {
-				writeTestInterface(t, filepath.Join(config, "wireguard-scripts"), tc.interfaceValue)
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			if tc.config != "" {
+				writeTestConfig(t, xdg, tc.config)
 			}
 			calls, sudoCalls := stubServiceCommands(t)
 			t.Setenv("WGK_ACTION_EXIT", tc.nativeExit)
@@ -56,18 +56,20 @@ func TestServiceCommands(t *testing.T) {
 
 func TestServiceCommandsRejectInvalidInput(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		args           []string
-		interfaceValue string
-		wantError      string
+		name      string
+		args      []string
+		config    string
+		wantError string
 	}{
 		{name: "extra argument", args: []string{"service", "up", "wg1"}, wantError: "wg1"},
-		{name: "invalid interface", args: []string{"service", "down"}, interfaceValue: "wg*", wantError: "invalid interface name"},
+		{name: "invalid interface", args: []string{"service", "down"}, config: "interface: 'wg*'\n", wantError: "invalid interface name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			config := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", config)
-			writeTestInterface(t, filepath.Join(config, "wireguard-scripts"), tc.interfaceValue)
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			if tc.config != "" {
+				writeTestConfig(t, xdg, tc.config)
+			}
 			calls, sudoCalls := stubServiceCommands(t)
 			var stdout, stderr bytes.Buffer
 			if got := run(context.Background(), tc.args, nil, &stdout, &stderr); got != 2 {

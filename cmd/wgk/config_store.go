@@ -41,7 +41,7 @@ func userConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "mingda.dev", "wireguard-toolkit", "config.yaml"), nil
+	return filepath.Join(home, "wireguard-scripts", "config.yaml"), nil
 }
 
 func configSettings(source configSource) (map[string]any, error) {
@@ -63,28 +63,8 @@ func configSettings(source configSource) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, overridden := user["interface"]; !overridden {
-		if err := useLegacyInterface(defaults); err != nil {
-			return nil, err
-		}
-	}
 	mergeConfigSettings(defaults, user)
 	return defaults, nil
-}
-
-func useLegacyInterface(settings map[string]any) error {
-	home, err := configHome()
-	if err != nil {
-		return err
-	}
-	name, err := legacyInterface(home)
-	if err != nil {
-		return err
-	}
-	if name != "" {
-		settings["interface"] = name
-	}
-	return nil
 }
 
 func readUserConfig(path string) (map[string]any, error) {
@@ -146,9 +126,6 @@ func initUserConfig() (string, error) {
 		}
 		settings, err := configSettings(configDefault)
 		if err != nil {
-			return err
-		}
-		if err := useLegacyInterface(settings); err != nil {
 			return err
 		}
 		return writeUserSettings(path, settings, false)
