@@ -16,10 +16,11 @@
 ## Service and Configuration
 
 - For service maintenance commands, resolve the interface before invoking `systemctl` and target its unit explicitly. Keep status queries read-only and scope service changes to the selected instance.
-- `status.sh` and `port.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
+- `status.sh`, `port.sh`, `up.sh`, and `down.sh` use `lib/interface.sh` to read a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` in the checkout. The tracked default is `wg0`.
 - Reuse this resolver for new interface commands. Treat configuration as plain text and report invalid values on stderr before invoking the underlying command.
 - `status.sh` passes through `systemctl is-active` stdout, stderr, and exit status. Preserve this contract so a valid inactive result retains the underlying nonzero exit status.
 - `port.sh` passes through `sudo wg show <interface> listen-port` stdout, stderr, and exit status for a single interface.
+- `udp.sh` and `iptables.sh` take one decimal port from `0` to `65535` via `lib/port.sh`. Preserve the native output and exit status of the socket query and `iptables -C` rule check.
 
 ## Validation
 
