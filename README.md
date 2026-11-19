@@ -40,6 +40,25 @@ It will install WireGuard (kernel module and tools) on the server, configure it,
 
 Run the script again to add or remove clients!
 
+### Check whether the service is active
+
+On Linux with systemd, run this command from the checkout.
+
+```bash
+./is-active.sh
+```
+
+The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
+
+To use `wg1` for your account, write the interface name to your personal configuration file.
+
+```bash
+mkdir -p "$HOME/.config/wireguard-scripts"
+printf '%s\n' wg1 >"$HOME/.config/wireguard-scripts/interface"
+```
+
+Use `$XDG_CONFIG_HOME` in place of `$HOME/.config` if it is set to an absolute path. A missing, unreadable, or empty personal file uses the repository default. Both files contain a single interface name.
+
 ## Providers
 
 I recommend these cheap cloud providers for your VPN server:
