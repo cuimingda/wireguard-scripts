@@ -122,6 +122,14 @@ Both scripts run without arguments and call `port.sh` to get the configured Wire
 
 `udp.sh` lists matching local UDP sockets using `ss`. `iptables.sh` uses `iptables -C` to check for a matching UDP `ACCEPT` rule in the `INPUT` chain. Each check passes through its underlying command's output and exit code.
 
+### Generate a random listen port
+
+```bash
+wgk port generate
+```
+
+This reads the current `ListenPort` using `wgk port get` and prints one random port from `10000` to `65535` that differs from it. The command only reads the configuration and works while the service is running or stopped.
+
 ### Change the listen port
 
 To set a specific five-digit port from `10000` to `65535`, stop the configured service and run the change in a terminal.

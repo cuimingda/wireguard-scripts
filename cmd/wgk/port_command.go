@@ -4,12 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+)
+
+const (
+	minMaintenancePort = 10000
+	maxMaintenancePort = 65535
 )
 
 func newPortCommand() *cobra.Command {
@@ -27,6 +33,12 @@ func newPortCommand() *cobra.Command {
 			Short: "Print the configured WireGuard listen port",
 			Args:  cobra.NoArgs,
 			RunE:  runPortGet,
+		},
+		&cobra.Command{
+			Use:   "generate",
+			Short: "Generate a random port different from the configured listen port",
+			Args:  cobra.NoArgs,
+			RunE:  runPortGenerate,
 		},
 		&cobra.Command{
 			Use:   "set <port>",
@@ -123,6 +135,43 @@ func newPortCheckCommand(name, description, executable string, commandArgs func(
 }
 
 func getPortForCheck(cmd *cobra.Command) (string, error) {
+	port, err := lookupConfiguredPort(cmd)
+	if err != nil {
+		return "", err
+	}
+	if !validMaintenancePort(port) {
+		return "", errors.New("wgk port get must return a five-digit port (10000-65535)")
+	}
+	return port, nil
+}
+
+func runPortGenerate(cmd *cobra.Command, _ []string) error {
+	port, err := lookupConfiguredPort(cmd)
+	if err != nil {
+		return err
+	}
+	current := decimalListenPort([]byte(port))
+	if current == 0 {
+		return errors.New("wgk port get must return a decimal port (1-65535)")
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), randomPortExcluding(current))
+	return err
+}
+
+func randomPortExcluding(current int) int {
+	const count = maxMaintenancePort - minMaintenancePort + 1
+	if current < minMaintenancePort || current > maxMaintenancePort {
+		return minMaintenancePort + rand.IntN(count)
+	}
+	// Draw one fewer value and skip the current port to keep the result uniform.
+	port := minMaintenancePort + rand.IntN(count-1)
+	if port >= current {
+		port++
+	}
+	return port
+}
+
+func lookupConfiguredPort(cmd *cobra.Command) (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("find wgk for port lookup: %w", err)
@@ -134,14 +183,10 @@ func getPortForCheck(cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", preserveProcessExit(fmt.Errorf("run wgk port get: %w", err))
 	}
-	port := strings.TrimRight(string(output), "\n")
-	if !validMaintenancePort(port) {
-		return "", errors.New("wgk port get must return a five-digit port (10000-65535)")
-	}
-	return port, nil
+	return strings.TrimRight(string(output), "\n"), nil
 }
 
 func validMaintenancePort(port string) bool {
 	number, err := strconv.ParseUint(port, 10, 16)
-	return len(port) == 5 && err == nil && number >= 10000
+	return len(port) == 5 && err == nil && number >= minMaintenancePort
 }
