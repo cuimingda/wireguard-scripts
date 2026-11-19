@@ -12,9 +12,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestPortSetWithoutPortShowsHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"port", "set", "--help"}, nil, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("port set --help exited %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "wgk port set <port>") {
+		t.Fatalf("missing port set usage in %q", stdout.String())
+	}
+	checkStatus(t, []string{"port", "set"}, stdout.String(), "", 0)
+}
+
 func TestPortSetChecksInputBeforeStatus(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
+	checkStatus(t, []string{"port", "set", "51820", "51821"}, "", "received 2", 2)
 	for _, port := range []string{"9999", "09999", "65536", "+1234", "1_000", "abcde"} {
 		checkStatus(t, []string{"port", "set", "--", port}, "", "five-digit decimal number", 2)
 	}

@@ -43,7 +43,7 @@ func newPortCommand() *cobra.Command {
 		&cobra.Command{
 			Use:   "set <port>",
 			Short: "Change the WireGuard listen port after confirmation",
-			Args:  cobra.ExactArgs(1),
+			Args:  cobra.MaximumNArgs(1),
 			RunE:  runPortSet,
 		},
 		&cobra.Command{

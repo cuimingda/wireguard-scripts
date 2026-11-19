@@ -15,6 +15,9 @@ import (
 var errInvalidSetPort = errors.New("port must be a five-digit decimal number from 10000 to 65535")
 
 func runPortSet(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return cmd.Help()
+	}
 	port := args[0]
 	if !validMaintenancePort(port) {
 		return errInvalidSetPort
