@@ -3,8 +3,8 @@
 ## Project Context
 
 - This repository contains standalone Bash scripts for maintaining WireGuard on Ubuntu servers with systemd. The service unit is `wg-quick@<interface>.service`.
-- Run scripts directly from the checkout, for example `./is-active.sh` or `./wireguard-install.sh`. Keep entry points in the repository root, use descriptive `.sh` filenames, and track them as executable. Command discovery stays within the checkout so it works independently of login profiles and global `PATH` setup.
-- `wireguard-install.sh` is the upstream-derived interactive installer and management script. Preserve its existing behavior when adding maintenance scripts. Ubuntu with systemd is the target for new operations.
+- Run scripts directly from the checkout, for example `./status.sh` or `./install.sh`. Keep entry points in the repository root, use short operation names with a `.sh` extension, and track them as executable. Command discovery stays within the checkout so it works independently of login profiles and global `PATH` setup.
+- `install.sh` is the upstream-derived interactive installer and management script. Preserve its existing behavior when adding maintenance scripts. Ubuntu with systemd is the target for new operations.
 
 ## Working Rules
 
@@ -15,9 +15,9 @@
 ## Service and Configuration
 
 - For service maintenance commands, resolve the interface before invoking `systemctl` and target its unit explicitly. Keep status queries read-only and scope service changes to the selected instance.
-- `is-active.sh` reads a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` relative to the script. The tracked default is `wg0`.
+- `status.sh` reads a single interface name from the current user's `$XDG_CONFIG_HOME/wireguard-scripts/interface` when `XDG_CONFIG_HOME` is absolute, or `~/.config/wireguard-scripts/interface` otherwise. A missing, unreadable, or empty override falls back to `config/interface` relative to the script. The tracked default is `wg0`.
 - Use this interface selection convention for new service scripts. Treat configuration as plain text and report invalid values on stderr before invoking `systemctl`.
-- `is-active.sh` passes through `systemctl is-active` stdout, stderr, and exit status. Preserve this contract so a valid inactive result retains the underlying nonzero exit status.
+- `status.sh` passes through `systemctl is-active` stdout, stderr, and exit status. Preserve this contract so a valid inactive result retains the underlying nonzero exit status.
 
 ## Validation
 

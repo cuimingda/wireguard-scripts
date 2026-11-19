@@ -31,7 +31,7 @@ Supported distributions:
 Clone this repository on the server and run the installer from the checkout. Answer the prompts to configure WireGuard.
 
 ```bash
-./wireguard-install.sh
+./install.sh
 ```
 
 It will install WireGuard (kernel module and tools) on the server, configure it, create a systemd service and a client configuration file.
@@ -43,7 +43,7 @@ Run the script again to add or remove clients!
 On Linux with systemd, run this command from the checkout.
 
 ```bash
-./is-active.sh
+./status.sh
 ```
 
 The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
