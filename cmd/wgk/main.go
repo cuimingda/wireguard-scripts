@@ -56,6 +56,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		},
 	})
 	root.AddCommand(
+		newConfigCommand(),
 		newServiceCommand("up", "Start the WireGuard service", "start"),
 		newServiceCommand("down", "Stop the WireGuard service", "stop"),
 	)

@@ -36,8 +36,7 @@ jobs:
       - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
-          mkdir -p "$XDG_CONFIG_HOME/wireguard-scripts"
-          printf '%s\n' wgk-smoke > "$XDG_CONFIG_HOME/wireguard-scripts/interface"
+          wgk config set interface wgk-smoke
           unit=wg-quick@wgk-smoke.service
           sudo tee "/run/systemd/system/$unit" >/dev/null <<'UNIT'
           [Service]

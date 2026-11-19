@@ -107,16 +107,25 @@ Use `./up.sh` when you are ready to start the service. The installer gets the en
 
 ### Select the interface
 
-`wgk status`, `wgk up`, `wgk down`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgk` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
+`wgk status`, `wgk up`, and `wgk down` use the `interface` setting from an embedded default configuration. The default is `wg0`. Set a user override and check the resolved value with these commands.
 
-To use `wg1` for your account, write the interface name to your personal configuration file.
+```bash
+wgk config set interface wg1
+wgk config get interface
+```
+
+The user YAML file is `~/.config/mingda.dev/wireguard-toolkit/config.yaml`. An absolute `$XDG_CONFIG_HOME` replaces `~/.config`. `wgk config path` returns the full path, and `wgk config edit --editor nano` opens the file. The default editor is `vi`. `wgk config init` creates the file from the defaults, seeding it with the existing interface selection when upgrading from a legacy interface file.
+
+Use `wgk config list` for the resolved configuration, `wgk config list --default` for the embedded defaults, and `wgk config list --user` for user YAML values. Use `--filter interface` to show only that key. `wgk config unset interface` removes the YAML override. The config commands return JSON results.
+
+When the user YAML has no `interface` key, `wgk` checks the legacy per-user `wireguard-scripts/interface` file before using the embedded default. The Bash commands read the legacy file and fall back to `config/interface` in the checkout. To select `wg1` for the Bash commands, write the legacy file.
 
 ```bash
 mkdir -p "$HOME/.config/wireguard-scripts"
 printf '%s\n' wg1 >"$HOME/.config/wireguard-scripts/interface"
 ```
 
-Use `$XDG_CONFIG_HOME` in place of `$HOME/.config` if it is set to an absolute path. A missing, unreadable, or empty personal file falls back to the default. Each file contains a single interface name.
+Use an absolute `$XDG_CONFIG_HOME` in place of `$HOME/.config` here as well. A missing, unreadable, or empty legacy file falls back to the default. The legacy files each contain a single interface name.
 
 ## Providers
 
