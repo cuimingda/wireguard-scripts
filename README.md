@@ -78,6 +78,14 @@ The checkout also provides the corresponding Bash entry points.
 
 These scripts run `sudo systemctl start` and `sudo systemctl stop` for the configured WireGuard service.
 
+### Show the WireGuard configuration path
+
+```bash
+wgk path
+```
+
+This prints `/etc/wireguard/wg0.conf` for the default interface. It uses the same effective interface setting as `wgk status` and can be run before the WireGuard configuration file is created.
+
 ### Show the listen port
 
 ```bash

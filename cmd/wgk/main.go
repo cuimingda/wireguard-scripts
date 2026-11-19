@@ -55,6 +55,19 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return nil
 		},
 	})
+	root.AddCommand(&cobra.Command{
+		Use:   "path",
+		Short: "Print the WireGuard interface configuration path",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			name, err := resolveInterface()
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "/etc/wireguard/%s.conf\n", name)
+			return err
+		},
+	})
 	root.AddCommand(
 		newConfigCommand(),
 		newServiceCommand("up", "Start the WireGuard service", "start"),
