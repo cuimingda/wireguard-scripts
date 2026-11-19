@@ -19,25 +19,20 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
-      - name: Install without usable Go or Make on PATH
+      - name: Install without a usable Go on PATH
         run: |
           export XDG_CACHE_HOME="$RUNNER_TEMP/wgk-cache"
-          stubs="$RUNNER_TEMP/wgk-stubs"
-          mkdir -p "$stubs"
-          for tool in go make; do
-            printf '#!/bin/sh\nexit 127\n' > "$stubs/$tool"
-            chmod +x "$stubs/$tool"
-          done
-          export PATH="$stubs:$PATH"
+          mkdir -p "$RUNNER_TEMP/wgk-stubs"
+          printf '#!/bin/sh\nexit 127\n' > "$RUNNER_TEMP/wgk-stubs/go"
+          chmod +x "$RUNNER_TEMP/wgk-stubs/go"
+          export PATH="$RUNNER_TEMP/wgk-stubs:$PATH"
 
-          cd "$RUNNER_TEMP"
-          "$GITHUB_WORKSPACE/install-wgk.sh"
+          make install
           test "$(command -v wgk)" = /usr/local/bin/wgk
 
-          rm "$stubs/make"
-          printf '#!/bin/sh\nexit 1\n' > "$stubs/curl"
-          chmod +x "$stubs/curl"
-          make -C "$GITHUB_WORKSPACE" install
+          printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/wgk-stubs/curl"
+          chmod +x "$RUNNER_TEMP/wgk-stubs/curl"
+          make install
       - name: Query real systemd from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"

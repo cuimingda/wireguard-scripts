@@ -3,7 +3,7 @@
 ## Project Context
 
 - This repository contains the Go and Cobra CLI `wgk` and standalone Bash scripts for maintaining WireGuard on Ubuntu servers with systemd. The service unit is `wg-quick@<interface>.service`.
-- Run `./install-wgk.sh` to install `wgk`, then run `wgk status` from any directory. `make install` is an optional shortcut. Run Bash scripts directly from the checkout, for example `./status.sh` or `./install.sh`. Keep Bash entry points in the repository root, use short operation names with a `.sh` extension, and track them as executable.
+- Use `make install` to install `wgk`, then run `wgk status` from any directory. Run Bash scripts directly from the checkout, for example `./status.sh` or `./install.sh`. Keep Bash entry points in the repository root, use short operation names with a `.sh` extension, and track them as executable.
 - `install.sh` is the upstream-derived interactive installer and management script. Preserve its existing behavior when adding maintenance scripts. Ubuntu with systemd is the target for new operations.
 
 ## Working Rules
@@ -25,7 +25,7 @@
 
 ## Validation
 
-- For Go changes, run `gofmt` and `go test ./...`. For installation changes, verify `./install-wgk.sh` on a disposable Ubuntu system and run `wgk status` from outside the checkout.
+- For Go changes, run `gofmt` and `go test ./...`. For installation changes, verify `make install` on a disposable Ubuntu system and run `wgk status` from outside the checkout.
 - For shell changes, run `bash -n` on each changed script and run the repository lint checks.
 
   ```bash
