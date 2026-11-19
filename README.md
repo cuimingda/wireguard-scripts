@@ -157,7 +157,7 @@ The service must still be loaded and inactive. For non-root use without a termin
 wgk random
 ```
 
-Run `wgk random` in a terminal without arguments. It checks that a terminal is available before stopping the service. It generates a port different from the current one, stops the configured service, previews the change and prompts for confirmation, and starts the same service. If you decline at the prompt, it starts the service with its original port. A failed step stops the sequence before any later steps run.
+`wgk random` generates a port different from the current one, stops the configured service, applies the change with `port set --force`, and starts the same service. It prints the preview and applies it without prompting. A failed step stops the sequence before any later steps run. For non-root use without a terminal, `sudo` must already be able to authorize the commands without prompting.
 
 The checkout also provides `./random.sh`. Stop the configured service with `./down.sh`, then run `./random.sh` in a terminal. It uses Python 3 and requires the systemd unit to be loaded and inactive.
 
