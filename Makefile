@@ -3,7 +3,7 @@ export DESTDIR
 .PHONY: help install
 
 help:
-	@printf '%s\n' 'Run make install to build and install wgk.'
+	@printf '%s\n' 'Run ./install-wgk.sh or make install to build and install wgk.'
 
 install:
-	bash ./lib/install-wgk.sh
+	./install-wgk.sh

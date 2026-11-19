@@ -3,7 +3,7 @@
 set -euo pipefail
 
 fail() {
-	printf 'make install: %s\n' "$1" >&2
+	printf 'install-wgk.sh: %s\n' "$1" >&2
 	exit 1
 }
 
@@ -69,13 +69,15 @@ install_binary() (
 )
 
 main() (
-	local arch go=go destination=${DESTDIR:-}/usr/local/bin
-	[[ $(uname -s) == Linux ]] || fail 'make install targets Ubuntu Linux'
+	local arch script_dir go=go destination=${DESTDIR:-}/usr/local/bin
+	(($# == 0)) || fail 'usage: ./install-wgk.sh'
+	[[ $(uname -s) == Linux ]] || fail 'this installer targets Ubuntu Linux'
 	case $(uname -m) in
 	x86_64) arch=amd64 ;;
 	aarch64) arch=arm64 ;;
-	*) fail 'make install needs a linux/amd64 or linux/arm64 host' ;;
+	*) fail 'this installer needs a linux/amd64 or linux/arm64 host' ;;
 	esac
+	script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || fail 'could not locate checkout'
 
 	if ! has_supported_go; then
 		go=$(prepare_toolchain "$arch")
@@ -85,7 +87,7 @@ main() (
 	build_dir=$(mktemp -d /tmp/wgk-install.XXXXXXXXXX)
 	trap 'rm -rf -- "$build_dir"' EXIT
 	GOTOOLCHAIN=local GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
-		"$go" build -mod=readonly -o "$build_dir/wgk" ./cmd/wgk
+		"$go" -C "$script_dir" build -mod=readonly -o "$build_dir/wgk" ./cmd/wgk
 
 	if [[ -n ${DESTDIR:-} || -w $destination || $EUID -eq 0 ]]; then
 		install_binary "$build_dir/wgk" "$destination"

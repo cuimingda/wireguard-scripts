@@ -44,11 +44,11 @@ On Ubuntu with systemd (`amd64` or `arm64`), run these commands from your existi
 
 ```bash
 git pull
-make install
+./install-wgk.sh
 wgk status
 ```
 
-`make install` builds `wgk` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. Otherwise, it downloads the pinned Go toolchain over HTTPS, verifies its SHA-256 checksum, and caches it for the current user. Install `make` and `curl` on the server and allow HTTPS access to the Go download and module servers for the first build. Installing to `/usr/local/bin` requires write access or `sudo`.
+`./install-wgk.sh` builds `wgk` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. When it needs to download Go, it uses `curl` over HTTPS, verifies the pinned toolchain's SHA-256 checksum, and caches it for the current user. The first build needs HTTPS access to the Go module servers. Installing to `/usr/local/bin` requires write access or `sudo`. On systems with Make, `make install` runs the same installer.
 
 Once installed, run `wgk status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
 
