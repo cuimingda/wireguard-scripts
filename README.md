@@ -54,6 +54,14 @@ wgk service status
 
 Once installed, run `wgk service status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
 
+### List server IP addresses
+
+```bash
+wgk ip list
+```
+
+This lists the public and private IPv4 and IPv6 addresses assigned to local interfaces. Each row shows the scope, address family, interface, and address. The command runs without `sudo` and determines scope from the address range. Private addresses include IPv4 shared address space (`100.64.0.0/10`) and IPv6 unique local addresses. The list omits loopback, link-local, and other special-purpose addresses. A server with only private addresses can still be listed successfully.
+
 ### Start or stop the service
 
 After installing `wgk`, run `wgk service up` to start the configured WireGuard service or `wgk service down` to stop it.
