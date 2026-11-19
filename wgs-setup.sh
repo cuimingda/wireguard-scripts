@@ -3,7 +3,7 @@
 set -e
 
 fail() {
-	printf 'setup.sh: %s\n' "$1" >&2
+	printf 'wgs-setup.sh: %s\n' "$1" >&2
 	exit 1
 }
 
