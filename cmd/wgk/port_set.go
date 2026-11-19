@@ -22,13 +22,21 @@ func runPortSet(cmd *cobra.Command, args []string) error {
 	if !validMaintenancePort(port) {
 		return errInvalidSetPort
 	}
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return err
+	}
 	name, err := resolveInterface()
 	if err != nil {
 		return err
 	}
+	return changeConfiguredPort(cmd, name, port, force)
+}
+
+func changeConfiguredPort(cmd *cobra.Command, name, port string, force bool) error {
 	unit := wireGuardServiceUnit(name)
 	if os.Geteuid() == 0 {
-		return setPort(cmd, unit, wireGuardConfigPath(name), port, openPortSetTerminal)
+		return setPort(cmd, unit, wireGuardConfigPath(name), port, force, openPortSetTerminal)
 	}
 	if err := checkPortSetInactive(cmd, unit); err != nil {
 		return err
@@ -37,7 +45,12 @@ func runPortSet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("find wgk for privileged port change: %w", err)
 	}
-	return preserveProcessExit(runPrivileged(cmd, executable, "port", "set-interface", "--", name, port))
+	args := []string{"port", "set-interface"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, "--", name, port)
+	return preserveProcessExit(runPrivileged(cmd, executable, args...))
 }
 
 func runPrivilegedPortSet(cmd *cobra.Command, args []string) error {
@@ -51,7 +64,11 @@ func runPrivilegedPortSet(cmd *cobra.Command, args []string) error {
 	if !validMaintenancePort(port) {
 		return errInvalidSetPort
 	}
-	return setPort(cmd, wireGuardServiceUnit(name), wireGuardConfigPath(name), port, openPortSetTerminal)
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return err
+	}
+	return setPort(cmd, wireGuardServiceUnit(name), wireGuardConfigPath(name), port, force, openPortSetTerminal)
 }
 
 func checkPortSetInactive(cmd *cobra.Command, unit string) error {
@@ -65,7 +82,7 @@ func checkPortSetInactive(cmd *cobra.Command, unit string) error {
 	return nil
 }
 
-func setPort(cmd *cobra.Command, unit, path, port string, openTerminal func() (io.ReadWriteCloser, error)) error {
+func setPort(cmd *cobra.Command, unit, path, port string, force bool, openTerminal func() (io.ReadWriteCloser, error)) error {
 	checkInactive := func() error { return checkPortSetInactive(cmd, unit) }
 	if err := checkInactive(); err != nil {
 		return err
@@ -90,18 +107,24 @@ func setPort(cmd *cobra.Command, unit, path, port string, openTerminal func() (i
 		return err
 	}
 
-	terminal, err := openTerminal()
-	if err != nil {
-		return fmt.Errorf("port change confirmation requires a terminal: %w", err)
-	}
-	defer terminal.Close()
-	confirmed, err := confirmPortChange(terminal, path, port, change)
-	if err != nil {
-		return fmt.Errorf("confirm port change: %w", err)
-	}
-	if !confirmed {
-		_, err := fmt.Fprintln(terminal, "Port change cancelled.")
-		return err
+	if force {
+		if err := writePortChangePreview(cmd.OutOrStdout(), path, port, change); err != nil {
+			return fmt.Errorf("preview port change: %w", err)
+		}
+	} else {
+		terminal, err := openTerminal()
+		if err != nil {
+			return fmt.Errorf("port change confirmation requires a terminal: %w", err)
+		}
+		defer terminal.Close()
+		confirmed, err := confirmPortChange(terminal, path, port, change)
+		if err != nil {
+			return fmt.Errorf("confirm port change: %w", err)
+		}
+		if !confirmed {
+			_, err := fmt.Fprintln(terminal, "Port change cancelled.")
+			return err
+		}
 	}
 
 	if err := commitPortConfig(root, name, original, change.updated, checkInactive); err != nil {
@@ -115,14 +138,21 @@ func openPortSetTerminal() (io.ReadWriteCloser, error) {
 	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
 }
 
-func confirmPortChange(terminal io.ReadWriter, path, port string, change listenPortChange) (bool, error) {
+func writePortChangePreview(output io.Writer, path, port string, change listenPortChange) error {
 	var preview strings.Builder
 	fmt.Fprintf(&preview, "Configuration %s\nListenPort %d -> %s\n", path, change.beforePort, port)
 	for _, line := range change.lines {
 		fmt.Fprintf(&preview, "Line %d\n- %s\n+ %s\n", line.lineNumber, line.before, line.after)
 	}
-	preview.WriteString("\nApply these changes? [y/N] ")
-	if _, err := io.WriteString(terminal, preview.String()); err != nil {
+	_, err := io.WriteString(output, preview.String())
+	return err
+}
+
+func confirmPortChange(terminal io.ReadWriter, path, port string, change listenPortChange) (bool, error) {
+	if err := writePortChangePreview(terminal, path, port, change); err != nil {
+		return false, err
+	}
+	if _, err := io.WriteString(terminal, "\nApply these changes? [Y/n] "); err != nil {
 		return false, err
 	}
 	answer, err := bufio.NewReader(terminal).ReadString('\n')
@@ -131,6 +161,9 @@ func confirmPortChange(terminal io.ReadWriter, path, port string, change listenP
 	}
 	if err != nil {
 		return false, err
+	}
+	if answer == "\n" || answer == "\r\n" {
+		return true, nil
 	}
 	answer = strings.TrimSpace(answer)
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil

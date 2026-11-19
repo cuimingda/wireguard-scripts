@@ -10,6 +10,10 @@ import (
 )
 
 func runPrivileged(cmd *cobra.Command, executable string, args ...string) error {
+	return privilegedCommand(cmd, executable, args...).Run()
+}
+
+func privilegedCommand(cmd *cobra.Command, executable string, args ...string) *exec.Cmd {
 	if os.Geteuid() != 0 {
 		args = append([]string{"--", executable}, args...)
 		executable = "sudo"
@@ -18,7 +22,7 @@ func runPrivileged(cmd *cobra.Command, executable string, args ...string) error 
 	process.Stdin = cmd.InOrStdin()
 	process.Stdout = cmd.OutOrStdout()
 	process.Stderr = cmd.ErrOrStderr()
-	return process.Run()
+	return process
 }
 
 func preserveProcessExit(err error) error {

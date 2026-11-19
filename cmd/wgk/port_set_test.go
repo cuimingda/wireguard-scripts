@@ -46,12 +46,19 @@ func TestPortSetConfirmation(t *testing.T) {
 		name       string
 		answer     string
 		activate   bool
+		force      bool
 		wantChange bool
 	}{
-		{name: "default no", answer: "\n"},
+		{name: "default yes", answer: "\n", wantChange: true},
+		{name: "explicit no", answer: "n\n"},
+		{name: "unrecognized answer", answer: "x\n"},
+		{name: "whitespace is not an empty answer", answer: "  \n"},
+		{name: "EOF"},
 		{name: "yes without a completed answer", answer: "yes"},
 		{name: "explicit yes", answer: "Yes\n", wantChange: true},
 		{name: "service active at commit", answer: "y\n", activate: true},
+		{name: "force", force: true, wantChange: true},
+		{name: "force still checks service at commit", force: true, activate: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "wg-test.conf")
@@ -64,13 +71,25 @@ func TestPortSetConfirmation(t *testing.T) {
 			cmd.SetContext(context.Background())
 			cmd.SetOut(&stdout)
 			cmd.SetErr(io.Discard)
+			activate := func() {
+				t.Setenv("WGK_TEST_PROPERTIES", "LoadState=loaded\nActiveState=active\n")
+			}
+			if tc.force && tc.activate {
+				cmd.SetOut(portSetWriteFunc(func(p []byte) (int, error) {
+					activate()
+					return stdout.Write(p)
+				}))
+			}
 			openTerminal := func() (io.ReadWriteCloser, error) {
+				if tc.force {
+					t.Fatal("the forced change tried to open a terminal")
+				}
 				if tc.activate {
-					t.Setenv("WGK_TEST_PROPERTIES", "LoadState=loaded\nActiveState=active\n")
+					activate()
 				}
 				return testPortTerminal{Reader: strings.NewReader(tc.answer), Writer: &preview}, nil
 			}
-			err := setPort(cmd, "wg-quick@wg-test.service", path, "51821", openTerminal)
+			err := setPort(cmd, "wg-quick@wg-test.service", path, "51821", tc.force, openTerminal)
 			if tc.activate {
 				if err == nil || !strings.Contains(err.Error(), "is active") {
 					t.Fatalf("setPort returned %v, want active service error", err)
@@ -80,13 +99,23 @@ func TestPortSetConfirmation(t *testing.T) {
 			}
 			checkQuery(t, calls, "wg-test")
 
-			for _, detail := range []string{path, "51820 -> 51821", "--dport 51820", "--dport 51821", "[y/N]"} {
-				if !strings.Contains(preview.String(), detail) {
-					t.Errorf("preview = %q, missing %q", preview.String(), detail)
+			previewText := preview.String()
+			if tc.force {
+				previewText = stdout.String()
+			}
+			for _, detail := range []string{path, "51820 -> 51821", "--dport 51820", "--dport 51821"} {
+				if !strings.Contains(previewText, detail) {
+					t.Errorf("preview = %q, missing %q", previewText, detail)
 				}
 			}
-			if strings.Contains(preview.String(), "sensitive") {
-				t.Errorf("preview contains private key: %q", preview.String())
+			if strings.Contains(previewText, "sensitive") {
+				t.Errorf("preview contains private key: %q", previewText)
+			}
+			if gotPrompt := strings.Contains(previewText, "[Y/n]"); gotPrompt != !tc.force {
+				t.Errorf("confirmation prompt presence = %t, force = %t", gotPrompt, tc.force)
+			}
+			if wantCancel := !tc.wantChange && !tc.activate; strings.Contains(previewText, "Port change cancelled.") != wantCancel {
+				t.Errorf("cancellation message differs from expected state: %q", previewText)
 			}
 			want := original
 			if tc.wantChange {
@@ -99,6 +128,38 @@ func TestPortSetConfirmation(t *testing.T) {
 		})
 	}
 }
+
+func TestPortSetForwardsForceThroughSudo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("sudo forwarding runs only as a non-root user")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	calls := stubSystemctl(t, "LoadState=loaded\nActiveState=inactive\n", "0")
+	sudoCalls := filepath.Join(filepath.Dir(calls), "sudo.args")
+	t.Setenv("WGK_TEST_SUDO_CALLS", sudoCalls)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "sudo"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$WGK_TEST_SUDO_CALLS\"\nexit 37\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"--force", "-f"} {
+		checkStatus(t, []string{"port", "set", "51821", flag}, "", "", 37)
+		output, err := os.ReadFile(sudoCalls)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "--\n" + executable + "\nport\nset-interface\n--force\n--\nwg0\n51821\n"
+		if string(output) != want {
+			t.Errorf("%s sudo arguments = %q, want %q", flag, output, want)
+		}
+	}
+}
+
+type portSetWriteFunc func([]byte) (int, error)
+
+func (write portSetWriteFunc) Write(p []byte) (int, error) { return write(p) }
 
 type testPortTerminal struct {
 	io.Reader

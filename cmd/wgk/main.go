@@ -41,6 +41,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	root.AddCommand(
 		newConfigCommand(),
 		newPortCommand(),
+		newRandomCommand(),
 		newServiceCommand(),
 	)
 	if err := root.ExecuteContext(ctx); err != nil {

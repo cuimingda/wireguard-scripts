@@ -95,10 +95,14 @@ func newServiceActionCommand(name, description, action string) *cobra.Command {
 				return err
 			}
 
-			if err := runPrivileged(cmd, "systemctl", action, "--", unit); err != nil {
-				return preserveProcessExit(fmt.Errorf("could not %s %s: %w", action, unit, err))
-			}
-			return nil
+			return runServiceAction(cmd, unit, action)
 		},
 	}
+}
+
+func runServiceAction(cmd *cobra.Command, unit, action string) error {
+	if err := runPrivileged(cmd, "systemctl", action, "--", unit); err != nil {
+		return preserveProcessExit(fmt.Errorf("could not %s %s: %w", action, unit, err))
+	}
+	return nil
 }

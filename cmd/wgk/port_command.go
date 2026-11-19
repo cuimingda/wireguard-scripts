@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -27,6 +29,20 @@ func newPortCommand() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	set := &cobra.Command{
+		Use:   "set <port>",
+		Short: "Change the WireGuard listen port after confirmation",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runPortSet,
+	}
+	set.Flags().BoolP("force", "f", false, "Apply the port change without prompting")
+	setInterface := &cobra.Command{
+		Use:    "set-interface <interface> <port>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE:   runPrivilegedPortSet,
+	}
+	setInterface.Flags().Bool("force", false, "Apply the port change without prompting")
 	command.AddCommand(
 		&cobra.Command{
 			Use:   "get",
@@ -40,24 +56,14 @@ func newPortCommand() *cobra.Command {
 			Args:  cobra.NoArgs,
 			RunE:  runPortGenerate,
 		},
-		&cobra.Command{
-			Use:   "set <port>",
-			Short: "Change the WireGuard listen port after confirmation",
-			Args:  cobra.MaximumNArgs(1),
-			RunE:  runPortSet,
-		},
+		set,
 		&cobra.Command{
 			Use:    "read <interface>",
 			Hidden: true,
 			Args:   cobra.ExactArgs(1),
 			RunE:   runPrivilegedPortRead,
 		},
-		&cobra.Command{
-			Use:    "set-interface <interface> <port>",
-			Hidden: true,
-			Args:   cobra.ExactArgs(2),
-			RunE:   runPrivilegedPortSet,
-		},
+		setInterface,
 		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(port string) []string {
 			return []string{"-H", "-uln", "sport = :" + port}
 		}),
@@ -73,6 +79,10 @@ func runPortGet(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	return readConfiguredPort(cmd, name, cmd.OutOrStdout())
+}
+
+func readConfiguredPort(cmd *cobra.Command, name string, output io.Writer) error {
 	path := wireGuardConfigPath(name)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrPermission) && os.Geteuid() != 0 {
@@ -80,7 +90,9 @@ func runPortGet(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("find wgk for privileged port lookup: %w", err)
 		}
-		if err := runPrivileged(cmd, executable, "port", "read", "--", name); err != nil {
+		process := privilegedCommand(cmd, executable, "port", "read", "--", name)
+		process.Stdout = output
+		if err := process.Run(); err != nil {
 			return preserveProcessExit(fmt.Errorf("read listen port from %s: %w", path, err))
 		}
 		return nil
@@ -88,7 +100,7 @@ func runPortGet(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	return printListenPort(cmd, path, data)
+	return printListenPort(output, path, data)
 }
 
 func runPrivilegedPortRead(cmd *cobra.Command, args []string) error {
@@ -104,15 +116,15 @@ func runPrivilegedPortRead(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printListenPort(cmd, path, data)
+	return printListenPort(cmd.OutOrStdout(), path, data)
 }
 
-func printListenPort(cmd *cobra.Command, path string, data []byte) error {
+func printListenPort(output io.Writer, path string, data []byte) error {
 	port, err := parseListenPort(data)
 	if err != nil {
 		return fmt.Errorf("read listen port from %s: %w", path, err)
 	}
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), port)
+	_, err = fmt.Fprintln(output, port)
 	return err
 }
 
@@ -146,16 +158,28 @@ func getPortForCheck(cmd *cobra.Command) (string, error) {
 }
 
 func runPortGenerate(cmd *cobra.Command, _ []string) error {
-	port, err := lookupConfiguredPort(cmd)
+	name, err := resolveInterface()
 	if err != nil {
 		return err
 	}
-	current := decimalListenPort([]byte(port))
-	if current == 0 {
-		return errors.New("wgk port get must return a decimal port (1-65535)")
+	port, err := generateConfiguredPort(cmd, name)
+	if err != nil {
+		return err
 	}
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), randomPortExcluding(current))
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), port)
 	return err
+}
+
+func generateConfiguredPort(cmd *cobra.Command, name string) (string, error) {
+	var output bytes.Buffer
+	if err := readConfiguredPort(cmd, name, &output); err != nil {
+		return "", err
+	}
+	current := decimalListenPort(bytes.TrimRight(output.Bytes(), "\n"))
+	if current == 0 {
+		return "", errors.New("configured listen port must be a decimal port (1-65535)")
+	}
+	return strconv.Itoa(randomPortExcluding(current)), nil
 }
 
 func randomPortExcluding(current int) int {
