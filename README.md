@@ -116,7 +116,9 @@ wgk config get interface
 
 The user YAML file is `~/.config/mingda.dev/wireguard-toolkit/config.yaml`. An absolute `$XDG_CONFIG_HOME` replaces `~/.config`. `wgk config path` returns the full path, and `wgk config edit --editor nano` opens the file. The default editor is `vi`. `wgk config init` creates the file from the defaults, seeding it with the existing interface selection when upgrading from a legacy interface file.
 
-Use `wgk config list` for the resolved configuration, `wgk config list --default` for the embedded defaults, and `wgk config list --user` for user YAML values. Use `--filter interface` to show only that key. `wgk config unset interface` removes the YAML override. The config commands return JSON results.
+Use `wgk config list` for the resolved configuration, `wgk config list --default` for the embedded defaults, and `wgk config list --user` for user YAML values. Use `--filter interface` to show only that key. The list prints sorted `key=value` lines such as `interface=wg0`. Nested keys use dots, as in `network.retries=3`, and sequences use inline YAML.
+
+`wgk config get` prints the value. `path`, `init`, and `edit` print the absolute configuration path. `wgk config unset interface` removes the YAML override. `set` and `unset` complete silently on success. Configuration commands exit with `0` on success or `1` with a diagnostic on stderr when an operation fails.
 
 When the user YAML has no `interface` key, `wgk` checks the legacy per-user `wireguard-scripts/interface` file before using the embedded default. The Bash commands read the legacy file and fall back to `config/interface` in the checkout. To select `wg1` for the Bash commands, write the legacy file.
 

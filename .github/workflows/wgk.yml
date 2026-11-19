@@ -36,7 +36,12 @@ jobs:
       - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
-          wgk config set interface wgk-smoke
+          default_config=$(wgk config list --default)
+          test "$default_config" = 'interface=wg0'
+          set_result=$(wgk config set interface wgk-smoke)
+          test -z "$set_result"
+          configured_interface=$(wgk config get interface)
+          test "$configured_interface" = wgk-smoke
           unit=wg-quick@wgk-smoke.service
           sudo tee "/run/systemd/system/$unit" >/dev/null <<'UNIT'
           [Service]

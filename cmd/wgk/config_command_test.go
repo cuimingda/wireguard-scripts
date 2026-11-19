@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestConfigCommandLayers(t *testing.T) {
@@ -16,30 +18,74 @@ func TestConfigCommandLayers(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "relative")
 	path := filepath.Join(home, ".config", "mingda.dev", "wireguard-toolkit", "config.yaml")
 
-	checkConfigCommand(t, map[string]any{"path": path}, "", "path", "--api")
-	checkConfigCommand(t, map[string]any{"interface": "wg0"}, "", "list", "--default")
-	checkConfigCommand(t, map[string]any{}, "", "list", "--user")
-	checkConfigCommand(t, map[string]any{"key": "interface", "value": "wg0"}, "", "get", "interface")
+	checkConfigCommand(t, path+"\n", "", "path")
+	checkConfigCommand(t, "interface=wg0\n", "", "list")
+	checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
+	checkConfigCommand(t, "", "", "list", "--user")
+	checkConfigCommand(t, "", "", "list", "--filter", "missing")
+	checkConfigCommand(t, "wg0\n", "", "get", "interface")
 	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
 		t.Fatalf("read-only commands should leave the config directory absent, got %v", err)
 	}
 
-	checkConfigCommand(t, map[string]any{"key": "interface"}, "", "set", "interface", "wg2")
-	checkConfigCommand(t, map[string]any{"key": "network.retries"}, "", "set", "network.retries", "3")
-	checkConfigCommand(t, map[string]any{"key": "network.enabled"}, "", "set", "network.enabled", "true")
-	checkConfigCommand(t, map[string]any{"interface": "wg0"}, "", "list", "--default")
-	checkConfigCommand(t, map[string]any{"interface": "wg2"}, "", "list", "--user", "--filter", "interface")
-	checkConfigCommand(t, map[string]any{"network": map[string]any{"retries": 3}}, "", "list", "--filter", "network.retries")
-	checkConfigCommand(t, nil, "interface", "set", "interface", "wg*")
-	checkConfigCommand(t, map[string]any{"key": "interface", "value": "wg2"}, "", "get", "interface")
-	checkConfigCommand(t, map[string]any{"key": "interface"}, "", "unset", "interface")
-	checkConfigCommand(t, map[string]any{"key": "interface", "value": "wg0"}, "", "get", "interface")
-	checkConfigCommand(t, map[string]any{"network": map[string]any{"enabled": true, "retries": 3}}, "", "list", "--user")
-	checkConfigCommand(t, map[string]any{"key": "network.retries"}, "", "unset", "network.retries")
-	checkConfigCommand(t, map[string]any{"network": map[string]any{"enabled": true}}, "", "list", "--user")
-	checkConfigCommand(t, nil, "interface", "unset", "interface")
-	checkConfigCommand(t, nil, "--default", "list", "--default", "--user")
-	checkConfigCommand(t, nil, "arg", "path", "unexpected")
+	checkConfigCommand(t, "", "", "set", "interface", "wg2")
+	checkConfigCommand(t, "", "", "set", "network.retries", "3")
+	checkConfigCommand(t, "", "", "set", "network.enabled", "true")
+	checkConfigCommand(t, "interface=wg2\nnetwork.enabled=true\nnetwork.retries=3\n", "", "list")
+	checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
+	checkConfigCommand(t, "interface=wg2\n", "", "list", "--user", "--filter", "interface")
+	checkConfigCommand(t, "network.retries=3\n", "", "list", "--filter", "network.retries")
+	checkConfigCommand(t, "3\n", "", "get", "network.retries")
+	checkConfigCommand(t, "", "interface", "set", "interface", "wg*")
+	checkConfigCommand(t, "wg2\n", "", "get", "interface")
+	checkConfigCommand(t, "", "", "unset", "interface")
+	checkConfigCommand(t, "wg0\n", "", "get", "interface")
+	checkConfigCommand(t, "network.enabled=true\nnetwork.retries=3\n", "", "list", "--user")
+	checkConfigCommand(t, "", "", "unset", "network.retries")
+	checkConfigCommand(t, "network.enabled=true\n", "", "list", "--user")
+	checkConfigCommand(t, "", "interface", "unset", "interface")
+	checkConfigCommand(t, "", "--default", "list", "--default", "--user")
+	checkConfigCommand(t, "", "arg", "path", "unexpected")
+	checkConfigCommand(t, "", "--api", "path", "--api")
+}
+
+func TestConfigCommandRendersComplexValuesOnOneLine(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	path := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml")
+	peers := []string{
+		"wg-first-remote-peer",
+		"wg-second-remote-peer",
+		"wg-third-remote-peer",
+		"wg-fourth-remote-peer",
+		"wg-fifth-remote-peer",
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "note: \"line one\\nline two\"\npeers: [" + strings.Join(peers, ", ") + "]\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"config", "list", "--user"}, nil, &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("list exited %d, stderr = %q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "note=") || !strings.HasPrefix(lines[1], "peers=") {
+		t.Fatalf("want one line per sorted key, got %q", stdout.String())
+	}
+	var note string
+	if err := yaml.Unmarshal([]byte(strings.TrimPrefix(lines[0], "note=")), &note); err != nil || note != "line one\nline two" {
+		t.Errorf("note = %q, error = %v", note, err)
+	}
+	var listedPeers []string
+	if err := yaml.Unmarshal([]byte(strings.TrimPrefix(lines[1], "peers=")), &listedPeers); err != nil || !slices.Equal(listedPeers, peers) {
+		t.Errorf("peers = %q, want %q, error = %v", listedPeers, peers, err)
+	}
+	checkConfigCommand(t, strings.TrimPrefix(lines[1], "peers=")+"\n", "", "get", "peers")
 }
 
 func TestConfigCommandMigratesLegacyInterface(t *testing.T) {
@@ -48,17 +94,17 @@ func TestConfigCommandMigratesLegacyInterface(t *testing.T) {
 	path := filepath.Join(xdg, "mingda.dev", "wireguard-toolkit", "config.yaml")
 	legacyDir := filepath.Join(xdg, "wireguard-scripts")
 	writeTestInterface(t, legacyDir, "wg-legacy\n")
-	checkConfigCommand(t, map[string]any{"path": path}, "", "init")
-	checkConfigCommand(t, map[string]any{"interface": "wg-legacy"}, "", "list", "--user")
-	checkConfigCommand(t, map[string]any{"key": "interface"}, "", "set", "interface", "wg-yaml")
-	checkConfigCommand(t, nil, "exists", "init")
+	checkConfigCommand(t, path+"\n", "", "init")
+	checkConfigCommand(t, "interface=wg-legacy\n", "", "list", "--user")
+	checkConfigCommand(t, "", "", "set", "interface", "wg-yaml")
+	checkConfigCommand(t, "", "exists", "init")
 
 	writeTestInterface(t, legacyDir, "wg*\n")
 	calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
 	checkStatus(t, []string{"status"}, "active\n", "", 0)
 	checkQuery(t, calls, "wg-yaml")
 	writeTestInterface(t, legacyDir, "wg-legacy\n")
-	checkConfigCommand(t, map[string]any{"key": "interface"}, "", "unset", "interface")
+	checkConfigCommand(t, "", "", "unset", "interface")
 	checkStatus(t, []string{"status"}, "active\n", "", 0)
 	checkQuery(t, calls, "wg-legacy")
 }
@@ -81,11 +127,11 @@ printf 'editor output\n'
 	var stdout, stderr bytes.Buffer
 	args := []string{"config", "edit", "--editor", `"` + editor + `" "--confirm edit"`}
 	code := run(context.Background(), args, strings.NewReader("requested edit\n"), &stdout, &stderr)
-	assertConfigResult(t, code, stdout.Bytes(), stderr.String(), map[string]any{"path": path}, "")
-	if !strings.Contains(stderr.String(), "editor output\n") {
-		t.Errorf("stderr = %q, want editor output", stderr.String())
+	if code != 0 || stdout.String() != path+"\n" || stderr.String() != "editor output\n" {
+		t.Fatalf("edit exited %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}
-	checkConfigCommand(t, map[string]any{"key": "interface", "value": "wg-edit"}, "", "get", "interface")
+	checkConfigCommand(t, "wg-edit\n", "", "get", "interface")
+	checkConfigCommand(t, "", "--editor", "edit", "--editor", "")
 }
 
 func TestInvalidYAMLConfigStopsServiceCommands(t *testing.T) {
@@ -107,7 +153,7 @@ func TestInvalidYAMLConfigStopsServiceCommands(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(tc.content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			checkConfigCommand(t, map[string]any{"interface": "wg0"}, "", "list", "--default")
+			checkConfigCommand(t, "interface=wg0\n", "", "list", "--default")
 			calls := stubSystemctl(t, "LoadState=loaded\nActiveState=active\n", "0")
 			checkStatus(t, []string{"status"}, "", tc.wantError, 2)
 			if _, err := os.Stat(calls); !os.IsNotExist(err) {
@@ -124,53 +170,23 @@ func TestInvalidYAMLConfigStopsServiceCommands(t *testing.T) {
 	}
 }
 
-func checkConfigCommand(t *testing.T, wantData any, wantError string, args ...string) {
+func checkConfigCommand(t *testing.T, wantOutput, wantError string, args ...string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), append([]string{"config"}, args...), nil, &stdout, &stderr)
-	assertConfigResult(t, code, stdout.Bytes(), stderr.String(), wantData, wantError)
-}
-
-func assertConfigResult(t *testing.T, code int, stdout []byte, stderr string, wantData any, wantError string) {
-	t.Helper()
-	var result struct {
-		OK       *bool           `json:"ok"`
-		Data     json.RawMessage `json:"data"`
-		Error    json.RawMessage `json:"error"`
-		ExitCode *int            `json:"exit_code"`
-	}
-	if err := json.Unmarshal(stdout, &result); err != nil {
-		t.Fatalf("invalid config result %q: %v (exit %d; stderr %q)", stdout, err, code, stderr)
-	}
-	if result.OK == nil || result.ExitCode == nil || len(result.Data) == 0 || len(result.Error) == 0 {
-		t.Fatalf("missing config result fields in %s", stdout)
-	}
 	wantExit := 0
 	if wantError != "" {
 		wantExit = 1
-		var message string
-		if err := json.Unmarshal(result.Error, &message); err != nil || !strings.Contains(message, wantError) {
-			t.Errorf("config error = %s, want %q", result.Error, wantError)
+		if !strings.Contains(stderr.String(), wantError) || strings.Count(stderr.String(), "\n") != 1 {
+			t.Errorf("config %v stderr = %q, want one diagnostic containing %q", args, stderr.String(), wantError)
 		}
-	} else if string(result.Error) != "null" {
-		t.Errorf("config error = %s, want null", result.Error)
+	} else if stderr.Len() != 0 {
+		t.Errorf("config %v stderr = %q, want empty", args, stderr.String())
 	}
-	if code != wantExit || *result.ExitCode != wantExit || *result.OK != (wantExit == 0) {
-		t.Errorf("exit code = %d, want %d (result %s; stderr %q)", code, wantExit, stdout, stderr)
+	if code != wantExit {
+		t.Errorf("config %v exit code = %d, want %d", args, code, wantExit)
 	}
-	var got any
-	if err := json.Unmarshal(result.Data, &got); err != nil {
-		t.Fatal(err)
-	}
-	gotData, err := json.Marshal(got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected, err := json.Marshal(wantData)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotData, expected) {
-		t.Errorf("config data = %s, want %s", gotData, expected)
+	if stdout.String() != wantOutput {
+		t.Errorf("config %v stdout = %q, want %q", args, stdout.String(), wantOutput)
 	}
 }

@@ -11,23 +11,23 @@ import (
 
 func newConfigEditCommand() *cobra.Command {
 	var editor string
-	command := configLeaf("edit", "Edit the user configuration file", 0, func(cmd *cobra.Command, _ []string) (any, error) {
+	command := configLeaf("edit", "Edit the user configuration file", 0, func(cmd *cobra.Command, _ []string) error {
 		args, err := configEditorArgs(editor)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		path, err := ensureUserConfig()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		process := exec.CommandContext(cmd.Context(), args[0], append(args[1:], path)...)
 		process.Stdin = cmd.InOrStdin()
 		process.Stdout = cmd.ErrOrStderr()
 		process.Stderr = cmd.ErrOrStderr()
 		if err := process.Run(); err != nil {
-			return nil, fmt.Errorf("config edit: run editor %q: %w", args[0], err)
+			return fmt.Errorf("run editor %q: %w", args[0], err)
 		}
-		return map[string]string{"path": path}, nil
+		return writeConfigLine(cmd.OutOrStdout(), path)
 	})
 	command.Flags().StringVar(&editor, "editor", "vi", "editor command used to edit the user configuration file")
 	return command
@@ -67,7 +67,7 @@ func configEditorArgs(editor string) ([]string, error) {
 		started = true
 	}
 	if quote != 0 {
-		return nil, fmt.Errorf("config edit: --editor contains an unterminated quote")
+		return nil, fmt.Errorf("--editor contains an unterminated quote")
 	}
 	if escaped {
 		word.WriteByte('\\')
@@ -76,7 +76,7 @@ func configEditorArgs(editor string) ([]string, error) {
 		args = append(args, word.String())
 	}
 	if len(args) == 0 || args[0] == "" {
-		return nil, fmt.Errorf("config edit: --editor requires an executable")
+		return nil, fmt.Errorf("--editor requires an executable")
 	}
 	return args, nil
 }

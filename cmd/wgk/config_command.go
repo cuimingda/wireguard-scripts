@@ -1,38 +1,29 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
-
-type configResult struct {
-	OK       bool    `json:"ok"`
-	Data     any     `json:"data"`
-	Error    *string `json:"error"`
-	ExitCode int     `json:"exit_code"`
-}
 
 func newConfigCommand() *cobra.Command {
 	group := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
-		Args:  configArgs(0),
+		Args:  configArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
-	group.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
-		return writeConfigResult(cmd, nil, err)
-	})
-	group.PersistentFlags().Bool("api", false, "write the compact JSON result")
+	group.SetFlagErrorFunc(reportConfigError)
 
 	get := configLeaf("get <key>", "Get a resolved configuration value", 1,
-		func(_ *cobra.Command, args []string) (any, error) {
+		func(cmd *cobra.Command, args []string) error {
 			value, err := getConfigValue(args[0])
-			return map[string]any{"key": args[0], "value": value}, err
+			if err != nil {
+				return err
+			}
+			return writeConfigValue(cmd.OutOrStdout(), value)
 		})
 	get.Flags().Bool("show-hidden", false, "show hidden configuration values")
 
@@ -40,23 +31,29 @@ func newConfigCommand() *cobra.Command {
 		newConfigListCommand(),
 		get,
 		configLeaf("set <key> <value>", "Set a user configuration value", 2,
-			func(_ *cobra.Command, args []string) (any, error) {
-				return map[string]string{"key": args[0]}, setConfigValue(args[0], args[1])
+			func(_ *cobra.Command, args []string) error {
+				return setConfigValue(args[0], args[1])
 			}),
 		configLeaf("unset <key>", "Unset a user configuration value", 1,
-			func(_ *cobra.Command, args []string) (any, error) {
-				return map[string]string{"key": args[0]}, unsetConfigValue(args[0])
+			func(_ *cobra.Command, args []string) error {
+				return unsetConfigValue(args[0])
 			}),
 		configLeaf("path", "Print the user configuration file path", 0,
-			func(_ *cobra.Command, _ []string) (any, error) {
+			func(cmd *cobra.Command, _ []string) error {
 				path, err := userConfigPath()
-				return map[string]string{"path": path}, err
+				if err != nil {
+					return err
+				}
+				return writeConfigLine(cmd.OutOrStdout(), path)
 			}),
 		newConfigEditCommand(),
 		configLeaf("init", "Create the user configuration file", 0,
-			func(_ *cobra.Command, _ []string) (any, error) {
+			func(cmd *cobra.Command, _ []string) error {
 				path, err := initUserConfig()
-				return map[string]string{"path": path}, err
+				if err != nil {
+					return err
+				}
+				return writeConfigLine(cmd.OutOrStdout(), path)
 			}),
 	)
 	return group
@@ -65,9 +62,9 @@ func newConfigCommand() *cobra.Command {
 func newConfigListCommand() *cobra.Command {
 	var showDefault, showUser bool
 	var filter string
-	command := configLeaf("list", "List configuration", 0, func(_ *cobra.Command, _ []string) (any, error) {
+	command := configLeaf("list", "List configuration", 0, func(cmd *cobra.Command, _ []string) error {
 		if showDefault && showUser {
-			return nil, fmt.Errorf("config list: --default and --user cannot both be set")
+			return fmt.Errorf("--default and --user cannot both be set")
 		}
 		source := configResolved
 		switch {
@@ -78,9 +75,13 @@ func newConfigListCommand() *cobra.Command {
 		}
 		settings, err := configSettings(source)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		return filterConfigSettings(settings, filter)
+		filtered, err := filterConfigSettings(settings, filter)
+		if err != nil {
+			return err
+		}
+		return writeConfigList(cmd.OutOrStdout(), filtered)
 	})
 	command.Flags().BoolVar(&showDefault, "default", false, "list application default configuration")
 	command.Flags().BoolVar(&showUser, "user", false, "list user configuration")
@@ -89,46 +90,27 @@ func newConfigListCommand() *cobra.Command {
 	return command
 }
 
-func configLeaf(use, short string, count int, execute func(*cobra.Command, []string) (any, error)) *cobra.Command {
+func configLeaf(use, short string, count int, execute func(*cobra.Command, []string) error) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
-		Args:  configArgs(count),
+		Args:  configArgs(cobra.ExactArgs(count)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := execute(cmd, args)
-			return writeConfigResult(cmd, data, err)
+			return reportConfigError(cmd, execute(cmd, args))
 		},
 	}
 }
 
-func configArgs(count int) cobra.PositionalArgs {
+func configArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
-		if len(args) == count {
-			return nil
-		}
-		label := strings.TrimPrefix(cmd.CommandPath(), "wgk ")
-		if count == 0 {
-			return writeConfigResult(cmd, nil, fmt.Errorf("%s: does not accept positional arguments: %v", label, args))
-		}
-		noun := "arguments"
-		if count == 1 {
-			noun = "argument"
-		}
-		return writeConfigResult(cmd, nil, fmt.Errorf("%s: expected exactly %d positional %s, got %d", label, count, noun, len(args)))
+		return reportConfigError(cmd, validate(cmd, args))
 	}
 }
 
-func writeConfigResult(cmd *cobra.Command, data any, commandErr error) error {
-	result := configResult{OK: true, Data: data}
-	if commandErr != nil {
-		message := commandErr.Error()
-		result = configResult{Error: &message, ExitCode: 1}
+func reportConfigError(cmd *cobra.Command, err error) error {
+	if err == nil {
+		return nil
 	}
-	if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
-		return fmt.Errorf("write config result: %w", err)
-	}
-	if commandErr != nil {
-		return exitStatus(1)
-	}
-	return nil
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", cmd.CommandPath(), err)
+	return exitStatus(1)
 }
