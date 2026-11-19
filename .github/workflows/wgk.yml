@@ -58,5 +58,5 @@ jobs:
           check_status inactive 1
           wgk up
           check_status active 0
-          sudo --preserve-env=XDG_CONFIG_HOME /usr/local/bin/wgk down
+          sudo -- /usr/bin/env XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/wgk down
           check_status inactive 1
