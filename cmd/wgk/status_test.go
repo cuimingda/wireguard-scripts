@@ -129,7 +129,7 @@ func checkQuery(t *testing.T, calls, name string) {
 func checkStatus(t *testing.T, args []string, wantOutput, wantError string, wantExit int) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	if got := run(context.Background(), args, &stdout, &stderr); got != wantExit {
+	if got := run(context.Background(), args, nil, &stdout, &stderr); got != wantExit {
 		t.Errorf("exit code = %d, want %d", got, wantExit)
 	}
 	if stdout.String() != wantOutput {

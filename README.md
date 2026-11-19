@@ -3,7 +3,7 @@
 ![Lint](https://github.com/angristan/wireguard-install/workflows/Lint/badge.svg)
 [![Say Thanks!](https://img.shields.io/badge/Say%20Thanks-!-1EAEDB.svg)](https://saythanks.io/to/angristan)
 
-Use `wgk` to query WireGuard service status on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
+Use `wgk` to manage WireGuard services on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
 
 WireGuard is a point-to-point VPN that can be used in different ways. Here, we mean a VPN as in: the client will forward all its traffic through an encrypted tunnel to the server.
 The server will apply NAT to the client's traffic so it will appear as if the client is browsing the web with the server's IP.
@@ -60,6 +60,17 @@ The checkout also provides a Bash entry point that uses Python 3.
 
 ### Start or stop the service
 
+After installing `wgk`, run `wgk up` to start the configured WireGuard service or `wgk down` to stop it.
+
+```bash
+wgk up
+wgk down
+```
+
+Both commands run `systemctl` directly as root and use `sudo` for other users. They pass through the underlying command's output and exit status.
+
+The checkout also provides the corresponding Bash entry points.
+
 ```bash
 ./up.sh
 ./down.sh
@@ -96,7 +107,7 @@ Use `./up.sh` when you are ready to start the service. The installer gets the en
 
 ### Select the interface
 
-`wgk status`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgk` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
+`wgk status`, `wgk up`, `wgk down`, `status.sh`, `port.sh`, `up.sh`, `down.sh`, and `random.sh` read the same per-user interface configuration. `wgk` defaults to `wg0`, which is also the value in the checkout's `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 

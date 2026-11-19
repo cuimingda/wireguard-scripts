@@ -33,7 +33,7 @@ jobs:
           printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/wgk-stubs/curl"
           chmod +x "$RUNNER_TEMP/wgk-stubs/curl"
           make install
-      - name: Query real systemd from outside the checkout
+      - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
           mkdir -p "$XDG_CONFIG_HOME/wireguard-scripts"
@@ -46,13 +46,17 @@ jobs:
           RemainAfterExit=yes
           UNIT
           sudo systemctl daemon-reload
-          sudo systemctl start "$unit"
           cd "$RUNNER_TEMP"
-          status=$(wgk status)
-          test "$status" = active
 
-          sudo systemctl stop "$unit"
-          code=0
-          status=$(wgk status) || code=$?
-          test "$code" -eq 1
-          test "$status" = inactive
+          check_status() {
+            local expected_status=$1 expected_code=$2 status code=0
+            status=$(wgk status) || code=$?
+            test "$code" -eq "$expected_code"
+            test "$status" = "$expected_status"
+          }
+
+          check_status inactive 1
+          wgk up
+          check_status active 0
+          sudo --preserve-env=XDG_CONFIG_HOME /usr/local/bin/wgk down
+          check_status inactive 1

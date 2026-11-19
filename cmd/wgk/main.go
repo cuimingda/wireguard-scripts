@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,10 +11,16 @@ import (
 )
 
 func main() {
-	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+type exitStatus int
+
+func (status exitStatus) Error() string {
+	return fmt.Sprintf("exit status %d", status)
+}
+
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root := &cobra.Command{
 		Use:           "wgk",
 		Short:         "Maintain WireGuard on Ubuntu",
@@ -22,20 +29,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetArgs(args)
+	root.SetIn(stdin)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
-	exitCode := 0
 	root.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "Show whether the WireGuard service is active",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			name, err := resolveInterface()
+			unit, err := resolveServiceUnit()
 			if err != nil {
 				return err
 			}
-			state, err := serviceStatus(cmd.Context(), "wg-quick@"+name+".service", cmd.ErrOrStderr())
+			state, err := serviceStatus(cmd.Context(), unit, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -43,14 +50,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				return err
 			}
 			if state == "inactive" {
-				exitCode = 1
+				return exitStatus(1)
 			}
 			return nil
 		},
 	})
+	root.AddCommand(
+		newServiceCommand("up", "Start the WireGuard service", "start"),
+		newServiceCommand("down", "Stop the WireGuard service", "stop"),
+	)
 	if err := root.ExecuteContext(ctx); err != nil {
+		var status exitStatus
+		if errors.As(err, &status) {
+			return int(status)
+		}
 		fmt.Fprintf(stderr, "wgk: %v\n", err)
 		return 2
 	}
-	return exitCode
+	return 0
 }
