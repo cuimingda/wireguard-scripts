@@ -43,7 +43,7 @@ func commitPortConfig(root *os.Root, name string, original portConfigSnapshot, u
 		return err
 	}
 	defer file.Close()
-	// Use the configuration file's lock so random.sh and wgk coordinate updates.
+	// Lock the current configuration so concurrent port changes cannot overwrite each other.
 	for {
 		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err != unix.EINTR {
