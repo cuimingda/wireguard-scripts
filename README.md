@@ -72,7 +72,7 @@ The script runs `sudo wg show <interface> listen-port` and returns its output an
 ./iptables.sh 51820
 ```
 
-`udp.sh` lists matching local UDP sockets using `ss`. `iptables.sh` uses `iptables -C` to check for a matching UDP `ACCEPT` rule in the `INPUT` chain. Each script takes one decimal port from `0` to `65535` and passes through the underlying command's output and exit code.
+`udp.sh` lists matching local UDP sockets using `ss`. `iptables.sh` uses `iptables -C` to check for a matching UDP `ACCEPT` rule in the `INPUT` chain. Each script takes exactly one five-digit decimal port from `10000` to `65535` and passes through the underlying command's output and exit code.
 
 ### Select the interface
 
