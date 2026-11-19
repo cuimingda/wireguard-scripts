@@ -40,15 +40,25 @@ It will install WireGuard (kernel module and tools) on the server, configure it,
 
 Run the script again to add or remove clients!
 
-### Check whether the service is active
+### Add the scripts to your PATH
 
-On Linux with systemd, run this command from the checkout.
+After cloning this repository on the server, run the setup script from the checkout.
 
 ```bash
-./is-active.sh
+./setup.sh
 ```
 
-The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
+Setup appends the checkout to your account's `PATH` through its login profile. It supports Bash, Zsh, sh, dash, and ash. Reconnect over SSH to run commands such as `is-active.sh` from any directory. To use the scripts in your current session, run the command printed by setup.
+
+### Check whether the service is active
+
+On Linux with systemd, run this command after setting up your `PATH`.
+
+```bash
+is-active.sh
+```
+
+You can also run `./is-active.sh` from the checkout. The script returns the output and exit code of `systemctl is-active`. The repository default is `wg0`, stored in `config/interface`.
 
 To use `wg1` for your account, write the interface name to your personal configuration file.
 
