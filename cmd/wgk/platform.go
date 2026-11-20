@@ -12,12 +12,7 @@ func checkUbuntu(goos string, readFile func(string) ([]byte, error)) error {
 		return fmt.Errorf("Ubuntu is required (detected %s)", goos)
 	}
 
-	path := "/etc/os-release"
-	data, err := readFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		path = "/usr/lib/os-release"
-		data, err = readFile(path)
-	}
+	data, path, err := readOSRelease(readFile)
 	if err != nil {
 		return fmt.Errorf("Ubuntu is required: could not read OS release information: %w", err)
 	}
@@ -34,4 +29,14 @@ func checkUbuntu(goos string, readFile func(string) ([]byte, error)) error {
 	default:
 		return fmt.Errorf("Ubuntu is required (expected ID=ubuntu in %s)", path)
 	}
+}
+
+func readOSRelease(readFile func(string) ([]byte, error)) ([]byte, string, error) {
+	path := "/etc/os-release"
+	data, err := readFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		path = "/usr/lib/os-release"
+		data, err = readFile(path)
+	}
+	return data, path, err
 }

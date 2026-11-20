@@ -61,6 +61,18 @@ make install
 
 `make install` builds with `GOTOOLCHAIN=local` and uses `/usr/lib/go-1.26/bin/go` by default. To use another installed Go 1.26.0 or newer, run `make install GO=/path/to/go`. The build may need HTTPS access to fetch Go modules. Installation replaces `/usr/local/bin/wgk` after a successful build and requires write access or `sudo`. If `DESTDIR` is set, it prefixes the target path used by both `make install` and `./setup.sh`.
 
+### Inspect the build and runtime environment
+
+Run this from any directory on Ubuntu to capture a diagnostic snapshot.
+
+```bash
+wgk env
+```
+
+The output is sorted by key, with one `key=value` per line. `host.*` reports the Ubuntu release, kernel, machine architecture, available CPUs, and systemd boot state. `build.*` reports the compiled binary's Go version, target `GOOS` and `GOARCH`, CPU feature level, CGO setting, module versions, and Git build metadata when available. `tool.go.*` reports Go found on `PATH`, while `tool.build_go.*` reports the toolchain selected by the exported `GO` variable or the Makefile default.
+
+`runtime.*` reports the executable, working directory, user IDs, and selected WireGuard interface, paths, and service unit. `tool.*` also shows the paths and available versions of build and WireGuard tools in the current environment. Missing paths and failed version probes are blank. `env.*` includes relevant exported variables. Proxy, authentication, and raw Go flag variables report only whether they are set. Control characters are escaped to keep each record on one line. The command runs without `sudo` and works before WireGuard is configured.
+
 ### Check whether the service is active
 
 Once installed, run this from any directory on Ubuntu with systemd as your normal user.

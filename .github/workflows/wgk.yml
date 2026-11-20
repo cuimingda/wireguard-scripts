@@ -21,6 +21,13 @@ jobs:
           ./setup.sh
           test "$(command -v wgk)" = /usr/local/bin/wgk
           test -x /usr/lib/go-1.26/bin/go
+          cd "$RUNNER_TEMP"
+          wgk env > wgk-env.txt
+          grep -Fx 'host.os.id=ubuntu' wgk-env.txt
+          grep -Fx "build.go.arch=$(dpkg --print-architecture)" wgk-env.txt
+          grep -Fx 'build.go.CGO_ENABLED=0' wgk-env.txt
+          grep -Fx 'tool.build_go.path=/usr/lib/go-1.26/bin/go' wgk-env.txt
+          grep -E '^tool\.build_go\.version=go version go[0-9]' wgk-env.txt
       - run: GOTOOLCHAIN=local /usr/lib/go-1.26/bin/go test ./...
       - name: Skip setup and rebuild with make install
         run: |
