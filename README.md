@@ -40,19 +40,36 @@ It will install WireGuard (kernel module and tools) on the server, configure it,
 
 Run the script again to add or remove clients!
 
-### Check whether the service is active
+### Install `wgk` for the first time
 
-Install Make on Ubuntu with systemd (`amd64` or `arm64`), then run these commands from your existing checkout.
+After cloning the repository on Ubuntu (`amd64` or `arm64`), run this from the checkout.
 
 ```bash
-git pull
+./setup.sh
+```
+
+If `/usr/local/bin/wgk` already exists as an executable file, setup exits successfully before running APT or Make. Otherwise it installs `make`, `golang-1.26-go`, and `ca-certificates` through APT and runs `make install`. If APT cannot find the Go package on Ubuntu 22.04 or 24.04, setup tries adding the official `updates` source for the `universe` component. The first installation requires root or `sudo` access. Use `./install.sh` separately to configure WireGuard.
+
+### Rebuild and reinstall `wgk`
+
+From the checkout, run `make install` whenever you want to build and install again. To update from upstream first, run these commands.
+
+```bash
+git pull --ff-only
 make install
+```
+
+`make install` builds with `GOTOOLCHAIN=local` and uses `/usr/lib/go-1.26/bin/go` by default. To use another installed Go 1.26.0 or newer, run `make install GO=/path/to/go`. The build may need HTTPS access to fetch Go modules. Installation replaces `/usr/local/bin/wgk` after a successful build and requires write access or `sudo`. If `DESTDIR` is set, it prefixes the target path used by both `make install` and `./setup.sh`.
+
+### Check whether the service is active
+
+Once installed, run this from any directory on Ubuntu with systemd as your normal user.
+
+```bash
 wgk service status
 ```
 
-`make install` builds `wgk` from the checkout and installs it in `/usr/local/bin`. It uses Go 1.26.0 or newer when available. When it needs to download Go, it uses `curl` over HTTPS, verifies the pinned toolchain's SHA-256 checksum, and caches it for the current user. The first build needs HTTPS access to the Go module servers. Installing to `/usr/local/bin` requires write access or `sudo`.
-
-Once installed, run `wgk service status` from any directory as your normal user. It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
+It prints `active` and exits `0` for a running service, or prints `inactive` and exits `1` for a stopped service. Query errors and unexpected service states exit `2` with a diagnostic on stderr.
 
 ### List server IP addresses
 

@@ -15,24 +15,37 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - run: go test ./...
-      - name: Install without a usable Go on PATH
+      - name: Install wgk with setup on Ubuntu
         run: |
-          export XDG_CACHE_HOME="$RUNNER_TEMP/wgk-cache"
-          mkdir -p "$RUNNER_TEMP/wgk-stubs"
-          printf '#!/bin/sh\nexit 127\n' > "$RUNNER_TEMP/wgk-stubs/go"
-          chmod +x "$RUNNER_TEMP/wgk-stubs/go"
-          export PATH="$RUNNER_TEMP/wgk-stubs:$PATH"
-
-          make install
+          test ! -e /usr/local/bin/wgk
+          ./setup.sh
           test "$(command -v wgk)" = /usr/local/bin/wgk
+          test -x /usr/lib/go-1.26/bin/go
+      - run: GOTOOLCHAIN=local /usr/lib/go-1.26/bin/go test ./...
+      - name: Skip setup and rebuild with make install
+        run: |
+          stubs=$(mktemp -d "$RUNNER_TEMP/wgk-stubs.XXXXXXXXXX")
+          export WGK_UNEXPECTED_CALLS="$stubs/calls"
+          cat > "$stubs/unexpected" <<'STUB'
+          #!/bin/sh
+          printf '%s\n' "$0" >> "$WGK_UNEXPECTED_CALLS"
+          exit 1
+          STUB
+          chmod +x "$stubs/unexpected"
+          for command in apt apt-get apt-cache curl make sudo; do
+            ln -s unexpected "$stubs/$command"
+          done
+          export PATH="$stubs:$PATH"
+          ./setup.sh
+          test ! -e "$WGK_UNEXPECTED_CALLS"
 
-          printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/wgk-stubs/curl"
-          chmod +x "$RUNNER_TEMP/wgk-stubs/curl"
-          make install
+          rm -- "$stubs/make"
+          staging=$(mktemp -d "$RUNNER_TEMP/wgk-stage.XXXXXXXXXX")
+          mkdir -p "$staging/usr/local/bin"
+          install -m 0755 "$stubs/unexpected" "$staging/usr/local/bin/wgk"
+          make install DESTDIR="$staging"
+          "$staging/usr/local/bin/wgk" --help >/dev/null
+          test ! -e "$WGK_UNEXPECTED_CALLS"
       - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"
