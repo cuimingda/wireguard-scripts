@@ -3,7 +3,7 @@
 ## Project Context
 
 - This repository contains the Go and Cobra CLI `wgk` for maintaining WireGuard on Ubuntu servers with systemd. The service unit is `wg-quick@<interface>.service`.
-- Run `./setup.sh` after cloning on Ubuntu to install the build prerequisites through APT and run `make install` once. Setup exits successfully when the target `wgk` is already executable.
+- Run `./setup.sh` after cloning on Ubuntu to install the build prerequisites through APT and run `make install` once. Setup skips this work when the target `wgk` is already executable. Use `./setup.sh --force` to repeat the full setup.
 - Use `make install` to rebuild and reinstall `wgk` with an existing Go toolchain. Keep APT operations and other build environment preparation in `setup.sh`. Run `wgk service status` from any directory after installation.
 - Run the upstream-derived interactive installer and management script as `./install.sh` from the checkout. Keep it executable and preserve its existing behavior when changing `wgk` maintenance commands.
 

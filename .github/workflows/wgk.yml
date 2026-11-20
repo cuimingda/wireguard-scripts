@@ -53,6 +53,11 @@ jobs:
           make install DESTDIR="$staging"
           "$staging/usr/local/bin/wgk" --help >/dev/null
           test ! -e "$WGK_UNEXPECTED_CALLS"
+      - name: Reinstall wgk with forced setup
+        run: |
+          original_inode=$(stat -c '%i' /usr/local/bin/wgk)
+          ./setup.sh --force
+          test "$(stat -c '%i' /usr/local/bin/wgk)" != "$original_inode"
       - name: Start and stop a systemd unit from outside the checkout
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/wgk-config"

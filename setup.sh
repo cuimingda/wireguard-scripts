@@ -14,10 +14,17 @@ has_apt_candidate() {
 main() {
 	local binary=${DESTDIR:-}/usr/local/bin/wgk go_package=golang-1.26-go
 	local release=/etc/os-release ID='' VERSION_CODENAME='' mirror
+	local force=false
 	local -a elevate=()
 
+	if [[ ${1:-} == --force ]]; then
+		force=true
+		shift
+	fi
+	(($# == 0)) || fail 'usage: ./setup.sh [--force]'
+
 	cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-	if [[ -f $binary && -x $binary ]]; then
+	if [[ $force == false && -f $binary && -x $binary ]]; then
 		printf '%s already exists. Skipping setup.\n' "$binary"
 		return
 	fi
@@ -61,4 +68,4 @@ main() {
 	make install
 }
 
-main
+main "$@"

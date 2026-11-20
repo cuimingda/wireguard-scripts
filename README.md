@@ -48,7 +48,13 @@ After cloning the repository on Ubuntu (`amd64` or `arm64`), run this from the c
 ./setup.sh
 ```
 
-If `/usr/local/bin/wgk` already exists as an executable file, setup exits successfully before running APT or Make. Otherwise it installs `make`, `golang-1.26-go`, and `ca-certificates` through APT and runs `make install`. If APT cannot find the Go package on Ubuntu 22.04 or 24.04, setup tries adding the official `updates` source for the `universe` component. The first installation requires root or `sudo` access. Use `./install.sh` separately to configure WireGuard.
+By default, if `/usr/local/bin/wgk` already exists as an executable file, setup exits successfully before running APT or Make. Otherwise it installs `make`, `golang-1.26-go`, and `ca-certificates` through APT and runs `make install`. If APT cannot find the Go package on Ubuntu 22.04 or 24.04, setup tries adding the official `updates` source for the `universe` component. Installing prerequisites requires root or `sudo` access. Use `./install.sh` separately to configure WireGuard.
+
+To run the APT dependency installation and `make install` again even when `wgk` is already executable, run this command.
+
+```bash
+./setup.sh --force
+```
 
 ### Rebuild and reinstall `wgk`
 
