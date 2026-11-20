@@ -77,7 +77,11 @@ Run this once on an Ubuntu server with systemd and public IPv4 and IPv6 connecti
 
 `wgk` selects the server's public IPv4 as its endpoint and exits with an error if it cannot find one. It installs missing WireGuard runtime tools via APT, creates `/etc/wireguard/<interface>.conf` with a fresh server key, and enables forwarding, NAT, and inbound UDP for both address families. It uses `wgk port generate` to select a UDP port from `10000` to `65535` when creating the configuration. The default tunnel addresses are `10.66.66.1/24` and `fd42:42:42::1/64`. The command uses `sudo` when run by a non-root user.
 
-Installation completes when `wg-quick@<interface>.service` is active, enabled at boot, and listening on the configured port. Repeating `wgk install` after completion prints the installed interface and exits successfully, even if the `interface` setting has since changed. Rerun `wgk install` after a failed attempt to reuse the selected interface and any generated configuration. The command stops when it finds another WireGuard configuration on the server. Client enrollment is a separate operation.
+Before deploying the service, `wgk install` checks the public IPv4 and IPv6 routes, tunnel subnet conflicts, required tools, systemd, forwarding settings, firewall rules, and availability of the chosen UDP port on both address families. Missing packages are prepared before the checks that use them.
+
+After a failure or interruption, rerun `wgk install` to clean up the previous attempt's tracked service, files, and rules. It then checks the server again using the current interface and network settings, and generates a fresh key and port. It stops if it cannot establish ownership of a conflicting file or interface. An older unfinished installation may lack records of the original kernel forwarding values. In that case the installer reports that it is keeping the live values.
+
+`wgk` records success after verifying that `wg-quick@<interface>.service` is active, enabled at boot, and listening on the configured port, and that dual-stack forwarding, routes, and firewall rules are in place. Repeating `wgk install` after completion prints the installed interface and exits successfully, even if the `interface` setting has since changed.
 
 ### Inspect the build and runtime environment
 

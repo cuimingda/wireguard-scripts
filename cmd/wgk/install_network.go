@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -23,19 +21,29 @@ type installRoute struct {
 	Source netip.Addr `json:"prefsrc"`
 }
 
-func checkExistingInstallLinks(cmd *cobra.Command, name string) error {
+type installLink struct {
+	Name string `json:"ifname"`
+	Info struct {
+		Kind string `json:"info_kind"`
+	} `json:"linkinfo"`
+}
+
+func readInstallLinks(cmd *cobra.Command) ([]installLink, error) {
 	output, err := installCommandOutput(cmd, "ip", "-j", "-d", "link", "show")
 	if err != nil {
-		return fmt.Errorf("check for existing WireGuard interfaces: %w", err)
+		return nil, fmt.Errorf("check for existing WireGuard interfaces: %w", err)
 	}
-	var links []struct {
-		Name string `json:"ifname"`
-		Info struct {
-			Kind string `json:"info_kind"`
-		} `json:"linkinfo"`
-	}
+	var links []installLink
 	if err := json.Unmarshal(output, &links); err != nil {
-		return fmt.Errorf("parse network interfaces: %w", err)
+		return nil, fmt.Errorf("parse network interfaces: %w", err)
+	}
+	return links, nil
+}
+
+func checkExistingInstallLinks(cmd *cobra.Command, name string) error {
+	links, err := readInstallLinks(cmd)
+	if err != nil {
+		return err
 	}
 	for _, link := range links {
 		if link.Name == name || link.Info.Kind == "wireguard" {
@@ -108,35 +116,75 @@ func installPublicIPv4(route installRoute) (netip.Addr, error) {
 	return public, nil
 }
 
-func applyInstallForwarding(cmd *cobra.Command, paths installPaths, state installState, pending bool) error {
-	path := filepath.Join(paths.sysctlDir, installForwardingName)
-	raSetting := fmt.Sprintf("net/ipv6/conf/%s/accept_ra = 2\n", state.IPv6Uplink)
-	existing, err := readInstallFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		// Preserve kernel-managed router advertisements when forwarding is enabled.
-		raPath := filepath.Join(paths.procSysDir, "net/ipv6/conf", state.IPv6Uplink, "accept_ra")
-		ra, err := os.ReadFile(raPath)
-		if err != nil {
-			return fmt.Errorf("read the IPv6 uplink's router advertisement setting: %w", err)
-		}
-		config := installForwarding
-		switch strings.TrimSpace(string(ra)) {
-		case "0":
-		case "1", "2":
-			config = raSetting + config
-		default:
-			return fmt.Errorf("unexpected IPv6 router advertisement setting in %s", raPath)
-		}
-		if err := writeUserConfig(path, []byte(config), false); err != nil {
-			return fmt.Errorf("write WireGuard forwarding configuration %s: %w", path, err)
-		}
-	} else if err != nil {
-		return err
-	} else if !pending || (!bytes.Equal(existing, []byte(installForwarding)) && !bytes.Equal(existing, []byte(raSetting+installForwarding))) {
-		return fmt.Errorf("existing forwarding configuration at %s", path)
+type installSysctl struct {
+	Key    string `yaml:"key"`
+	Before string `yaml:"before"`
+	After  string `yaml:"after"`
+}
+
+func planInstallForwarding(paths installPaths, state installState) ([]installSysctl, error) {
+	// Apply accept_ra before changing global IPv6 forwarding to keep the uplink route.
+	raKey := "net/ipv6/conf/" + state.IPv6Uplink + "/accept_ra"
+	ra, err := readInstallSysctl(paths, raKey)
+	if err != nil {
+		return nil, err
 	}
-	if err := runInstallProcess(cmd, "sysctl", "-p", path); err != nil {
-		return fmt.Errorf("apply WireGuard forwarding settings: %w", err)
+	var settings []installSysctl
+	switch ra {
+	case "0":
+	case "1", "2":
+		settings = append(settings, installSysctl{Key: raKey, Before: ra, After: "2"})
+	default:
+		return nil, fmt.Errorf("unexpected value %q for %s", ra, raKey)
+	}
+	for _, key := range []string{"net/ipv4/ip_forward", "net/ipv6/conf/all/forwarding"} {
+		before, err := readInstallSysctl(paths, key)
+		if err != nil {
+			return nil, err
+		}
+		if before != "0" && before != "1" {
+			return nil, fmt.Errorf("unexpected value %q for %s", before, key)
+		}
+		settings = append(settings, installSysctl{Key: key, Before: before, After: "1"})
+	}
+	for _, setting := range settings {
+		path := filepath.Join(paths.procSysDir, setting.Key)
+		file, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return nil, fmt.Errorf("open sysctl %s for writing: %w", setting.Key, err)
+		}
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("close sysctl %s: %w", setting.Key, err)
+		}
+	}
+	return settings, nil
+}
+
+func readInstallSysctl(paths installPaths, key string) (string, error) {
+	value, err := os.ReadFile(filepath.Join(paths.procSysDir, key))
+	if err != nil {
+		return "", fmt.Errorf("read sysctl %s: %w", key, err)
+	}
+	return strings.TrimSpace(string(value)), nil
+}
+
+func renderInstallForwarding(settings []installSysctl) []byte {
+	var config strings.Builder
+	for _, setting := range settings {
+		fmt.Fprintf(&config, "%s = %s\n", setting.Key, setting.After)
+	}
+	return []byte(config.String())
+}
+
+func verifyInstallForwarding(paths installPaths, settings []installSysctl) error {
+	for _, setting := range settings {
+		current, err := readInstallSysctl(paths, setting.Key)
+		if err != nil {
+			return err
+		}
+		if current != setting.After {
+			return fmt.Errorf("verify sysctl %s: expected %s, got %s", setting.Key, setting.After, current)
+		}
 	}
 	return nil
 }

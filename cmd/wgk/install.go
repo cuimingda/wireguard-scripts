@@ -1,10 +1,12 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -14,7 +16,6 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"go.yaml.in/yaml/v3"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,11 +38,25 @@ type installSettings struct {
 }
 
 type installState struct {
-	Interface  string `yaml:"interface"`
-	Endpoint   string `yaml:"endpoint"`
-	IPv4Uplink string `yaml:"ipv4_uplink"`
-	IPv6Uplink string `yaml:"ipv6_uplink"`
-	Complete   bool   `yaml:"complete"`
+	Interface  string          `yaml:"interface"`
+	Endpoint   string          `yaml:"endpoint"`
+	IPv4Uplink string          `yaml:"ipv4_uplink"`
+	IPv6Uplink string          `yaml:"ipv6_uplink"`
+	Complete   bool            `yaml:"complete"`
+	Port       int             `yaml:"port,omitempty"`
+	Attempt    *installAttempt `yaml:"attempt,omitempty"`
+}
+
+type installPlan struct {
+	state    installState
+	config   []byte
+	firewall []installFirewallRule
+}
+
+type installUnit struct {
+	LoadState     string
+	ActiveState   string
+	UnitFileState string
 }
 
 func newInstallCommand() *cobra.Command {
@@ -126,121 +141,136 @@ func provisionWireGuard(cmd *cobra.Command, paths installPaths, resolveName func
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "WireGuard is already configured (%s).\n", state.Interface)
 		return err
 	}
-	var pendingConfig string
-	if pending {
-		pendingConfig = state.Interface + ".conf"
-	} else {
-		state.Interface, err = resolveName()
-		if err != nil {
-			return err
-		}
-		if !validInterfaceName(state.Interface) {
-			return errors.New("invalid interface name in configuration")
-		}
-	}
-	if err := checkExistingInstall(paths.wireGuardDir, pendingConfig); err != nil {
-		return err
-	}
-	if info, err := os.Stat(paths.systemdDir); err != nil || !info.IsDir() {
-		return errors.New("WireGuard installation requires a running systemd")
-	}
-	if !pending {
-		if err := checkUnusedInstallTargets(cmd, paths, state.Interface); err != nil {
-			return err
-		}
-	}
-
-	network, err := discoverInstallNetwork(cmd, state.Interface)
+	name, err := resolveName()
 	if err != nil {
 		return err
 	}
-	if pending && network != state {
-		return errors.New("public address or uplink changed since the pending WireGuard installation")
+	if !validInterfaceName(name) {
+		return errors.New("invalid interface name in configuration")
 	}
+	if err := cleanInstallStagingFiles(paths); err != nil {
+		return err
+	}
+	var oldPort int
+	if pending {
+		oldPort, err = cleanupInstallAttempt(cmd, paths, state)
+		if err != nil {
+			return fmt.Errorf("clean up the previous WireGuard installation attempt: %w", err)
+		}
+	}
+	plan, err := planWireGuardInstall(cmd, paths, name, oldPort, generatePort)
+	if err != nil {
+		return err
+	}
+	// Persist ownership before anything from this attempt can become visible.
+	if err := writeInstallState(statePath, plan.state, pending); err != nil {
+		return err
+	}
+	if err := applyWireGuardInstall(cmd, paths, plan); err != nil {
+		return err
+	}
+	state = plan.state
+	state.Complete = true
+	state.Attempt = nil
+	if err := writeInstallState(statePath, state, true); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Configured %s (endpoint %s:%d).\n", state.Interface, state.Endpoint, state.Port)
+	return err
+}
+
+func planWireGuardInstall(cmd *cobra.Command, paths installPaths, name string, oldPort int, generatePort func(*cobra.Command) (int, error)) (installPlan, error) {
 	settings, err := loadInstallSettings()
 	if err != nil {
-		return err
+		return installPlan{}, err
+	}
+	state, err := preflightInstallHost(cmd, paths, name, settings)
+	if err != nil {
+		return installPlan{}, err
+	}
+	forwarding, err := planInstallForwarding(paths, state)
+	if err != nil {
+		return installPlan{}, err
 	}
 	if err := installWireGuardTools(cmd); err != nil {
-		return err
+		return installPlan{}, err
 	}
-	if !pending {
-		if err := writeInstallState(statePath, network, false); err != nil {
-			return err
-		}
-		state = network
-	}
-	port, err := prepareInstallConfig(cmd, filepath.Join(paths.wireGuardDir, state.Interface+".conf"), state, settings, generatePort)
+	unit, err := readInstallUnit(cmd, name)
 	if err != nil {
+		return installPlan{}, err
+	}
+	if unit.LoadState != "loaded" || unit.ActiveState != "inactive" || unit.UnitFileState != "disabled" {
+		return installPlan{}, fmt.Errorf("expected an inactive, disabled %s, found LoadState=%s ActiveState=%s UnitFileState=%s",
+			wireGuardServiceUnit(name), unit.LoadState, unit.ActiveState, unit.UnitFileState)
+	}
+	state.Port, err = chooseInstallPort(cmd, oldPort, generatePort)
+	if err != nil {
+		return installPlan{}, err
+	}
+	firewall := installFirewallRules(name, settings, state.IPv4Uplink, state.IPv6Uplink, state.Port)
+	if err := preflightInstallFirewall(cmd, firewall); err != nil {
+		return installPlan{}, err
+	}
+	output, err := installCommandOutput(cmd, "wg", "genkey")
+	if err != nil {
+		return installPlan{}, fmt.Errorf("generate WireGuard private key: %w", err)
+	}
+	key := strings.TrimSpace(string(output))
+	if !validInstallKey(key) {
+		return installPlan{}, errors.New("wg genkey did not return a valid WireGuard key")
+	}
+	publicKey, err := installPublicKey(cmd, key)
+	if err != nil {
+		return installPlan{}, err
+	}
+	config := append([]byte(installConfigMark), renderInstallConfig(name, settings, key, state.IPv4Uplink, state.IPv6Uplink, state.Port)...)
+	state.Attempt = &installAttempt{
+		ConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(config)), PublicKey: publicKey,
+		IPv4: settings.IPv4.String(), IPv6: settings.IPv6.String(), Forwarding: forwarding,
+	}
+	return installPlan{state: state, config: config, firewall: firewall}, nil
+}
+
+func applyWireGuardInstall(cmd *cobra.Command, paths installPaths, plan installPlan) error {
+	state := plan.state
+	configFile := filepath.Join(paths.wireGuardDir, state.Interface+".conf")
+	if err := writeDurableInstallFile(configFile, plan.config, false); err != nil {
 		return err
 	}
-	if err := applyInstallForwarding(cmd, paths, state, pending); err != nil {
+	forwardingFile := filepath.Join(paths.sysctlDir, installForwardingName)
+	if err := writeDurableInstallFile(forwardingFile, renderInstallForwarding(state.Attempt.Forwarding), false); err != nil {
 		return err
 	}
-	if err := startInstalledService(cmd, state.Interface, port); err != nil {
+	if err := runInstallProcess(cmd, "sysctl", "-p", forwardingFile); err != nil {
+		return fmt.Errorf("apply WireGuard forwarding settings: %w", err)
+	}
+	if err := startInstalledService(cmd, state.Interface, state.Port); err != nil {
+		return err
+	}
+	if err := verifyInstallForwarding(paths, state.Attempt.Forwarding); err != nil {
+		return err
+	}
+	if err := verifyInstallFirewall(cmd, plan.firewall); err != nil {
 		return err
 	}
 	current, err := discoverInstallNetwork(cmd, state.Interface)
 	if err != nil {
 		return fmt.Errorf("verify public network after enabling WireGuard forwarding: %w", err)
 	}
-	if current != state {
+	if current.Endpoint != state.Endpoint || current.IPv4Uplink != state.IPv4Uplink || current.IPv6Uplink != state.IPv6Uplink {
 		return errors.New("public endpoint or uplink changed after enabling WireGuard forwarding")
 	}
-	if err := enableInstalledService(cmd, state.Interface); err != nil {
-		return err
-	}
-	state.Complete = true
-	if err := writeInstallState(statePath, state, true); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Configured %s (endpoint %s:%d).\n", state.Interface, state.Endpoint, port)
-	return err
+	return enableInstalledService(cmd, state.Interface)
 }
 
-func readInstallState(path string) (installState, bool, error) {
-	var state installState
-	data, err := readInstallFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return state, false, nil
-	}
-	if err != nil {
-		return state, false, err
-	}
-	if err := decodeConfigYAML(data, &state); err != nil {
-		return state, false, fmt.Errorf("read WireGuard installation state %s: %w", path, err)
-	}
-	if state.Interface == "" {
-		// Installation records written before interface selection always used wg0.
-		state.Interface = "wg0"
-	}
-	ip, _ := netip.ParseAddr(state.Endpoint)
-	if !validInterfaceName(state.Interface) || !ip.Is4() || serverIPScope(ip) != "public" ||
-		!validInstallUplink(state.IPv4Uplink, state.Interface) || !validInstallUplink(state.IPv6Uplink, state.Interface) {
-		return state, false, fmt.Errorf("invalid WireGuard installation state in %s", path)
-	}
-	return state, true, nil
-}
-
-func writeInstallState(path string, state installState, replace bool) error {
-	data, err := yaml.Marshal(state)
-	if err != nil {
-		return err
-	}
-	if err := writeUserConfig(path, data, replace); err != nil {
-		return fmt.Errorf("write WireGuard installation state %s: %w", path, err)
-	}
-	return nil
-}
-
-func checkExistingInstall(dir, pendingConfig string) error {
+func checkExistingInstall(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == "params" || (strings.HasSuffix(name, ".conf") && name != pendingConfig) {
+		if name == "params" || strings.HasSuffix(name, ".conf") {
 			return fmt.Errorf("existing WireGuard configuration at %s", filepath.Join(dir, name))
 		}
 	}
@@ -277,19 +307,22 @@ func loadInstallSettings() (installSettings, error) {
 }
 
 func installWireGuardTools(cmd *cobra.Command) error {
-	tools := []string{"wg", "wg-quick", "iptables", "ip6tables"}
-	for _, tool := range tools {
+	for _, tool := range installRequiredTools {
 		if _, err := exec.LookPath(tool); err != nil {
 			if err := runInstallProcess(cmd, "apt-get", "update"); err != nil {
 				return fmt.Errorf("update APT package lists: %w", err)
 			}
-			if err := runInstallProcess(cmd, "apt-get", "install", "-y", "--no-install-recommends", "wireguard-tools", "iptables"); err != nil {
+			args := []string{"install", "-y", "--no-install-recommends", "wireguard-tools", "iptables"}
+			if _, err := installCommandOutput(cmd, "apt-get", append([]string{"--simulate"}, args...)...); err != nil {
+				return fmt.Errorf("check WireGuard runtime package dependencies: %w", err)
+			}
+			if err := runInstallProcess(cmd, "apt-get", args...); err != nil {
 				return fmt.Errorf("install WireGuard runtime packages: %w", err)
 			}
 			break
 		}
 	}
-	for _, tool := range tools {
+	for _, tool := range installRequiredTools {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("required WireGuard tool %s is unavailable: %w", tool, err)
 		}
@@ -297,46 +330,78 @@ func installWireGuardTools(cmd *cobra.Command) error {
 	return nil
 }
 
-func readInstallFile(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
+func chooseInstallPort(cmd *cobra.Command, oldPort int, generatePort func(*cobra.Command) (int, error)) (int, error) {
+	const maxAttempts = 64
+	for range maxAttempts {
+		port, err := generatePort(cmd)
+		if err != nil {
+			return 0, err
+		}
+		if port < minMaintenancePort || port > maxMaintenancePort {
+			return 0, fmt.Errorf("invalid initial WireGuard port %d", port)
+		}
+		if port == oldPort {
+			continue
+		}
+		if err := probeInstallPort(cmd.Context(), port); errors.Is(err, syscall.EADDRINUSE) {
+			continue
+		} else if err != nil {
+			return 0, err
+		}
+		return port, nil
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) {
-		return nil, fmt.Errorf("expected a private regular file at %s", path)
-	}
-	return os.ReadFile(path)
+	return 0, fmt.Errorf("could not select a new UDP port available on IPv4 and IPv6 after %d attempts", maxAttempts)
 }
 
-func prepareInstallConfig(cmd *cobra.Command, path string, state installState, settings installSettings, generatePort func(*cobra.Command) (int, error)) (int, error) {
-	data, err := readInstallFile(path)
-	if err == nil {
-		if !bytes.HasPrefix(data, []byte(installConfigMark)) {
-			return 0, fmt.Errorf("existing WireGuard configuration at %s", path)
+func probeInstallPort(ctx context.Context, port int) error {
+	var listen net.ListenConfig
+	for _, network := range []string{"udp4", "udp6"} {
+		conn, err := listen.ListenPacket(ctx, network, ":"+strconv.Itoa(port))
+		if err != nil {
+			return fmt.Errorf("preflight %s listen port %d: %w", network, port, err)
 		}
-		return parseListenPort(data)
+		defer conn.Close()
 	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return 0, err
-	}
-	port, err := generatePort(cmd)
-	if err != nil {
-		return 0, err
-	}
-	output, err := installCommandOutput(cmd, "wg", "genkey")
-	if err != nil {
-		return 0, fmt.Errorf("generate WireGuard private key: %w", err)
-	}
-	key := strings.TrimSpace(string(output))
+	return nil
+}
+
+func validInstallKey(key string) bool {
 	decoded, err := base64.StdEncoding.Strict().DecodeString(key)
-	if err != nil || len(decoded) != 32 || base64.StdEncoding.EncodeToString(decoded) != key {
-		return 0, errors.New("wg genkey did not return a valid WireGuard key")
+	return err == nil && len(decoded) == 32 && base64.StdEncoding.EncodeToString(decoded) == key
+}
+
+func installPublicKey(cmd *cobra.Command, privateKey string) (string, error) {
+	process := exec.CommandContext(cmd.Context(), "wg", "pubkey")
+	process.Stdin = strings.NewReader(privateKey + "\n")
+	process.Stderr = cmd.ErrOrStderr()
+	output, err := process.Output()
+	if err != nil {
+		return "", fmt.Errorf("derive WireGuard public key: %w", err)
 	}
-	config := append([]byte(installConfigMark), renderInstallConfig(state.Interface, settings, key, state.IPv4Uplink, state.IPv6Uplink, port)...)
-	if err := writeUserConfig(path, config, false); err != nil {
-		return 0, fmt.Errorf("create WireGuard server configuration %s: %w", path, err)
+	publicKey := strings.TrimSpace(string(output))
+	if !validInstallKey(publicKey) {
+		return "", errors.New("wg pubkey did not return a valid WireGuard key")
 	}
-	return port, nil
+	return publicKey, nil
+}
+
+func readInstallUnit(cmd *cobra.Command, name string) (installUnit, error) {
+	unit := wireGuardServiceUnit(name)
+	output, err := installCommandOutput(cmd, "systemctl", "show", "--property=LoadState", "--property=ActiveState", "--property=UnitFileState", "--", unit)
+	if err != nil {
+		return installUnit{}, fmt.Errorf("query %s before installation: %w", unit, err)
+	}
+	properties := make(map[string]string, 3)
+	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+		key, value, found := strings.Cut(line, "=")
+		if found {
+			properties[key] = value
+		}
+	}
+	if properties["LoadState"] == "" || properties["ActiveState"] == "" {
+		return installUnit{}, fmt.Errorf("incomplete systemctl state for %s", unit)
+	}
+	return installUnit{LoadState: properties["LoadState"], ActiveState: properties["ActiveState"], UnitFileState: properties["UnitFileState"]}, nil
 }
 
 func generateInstallPort(cmd *cobra.Command) (int, error) {

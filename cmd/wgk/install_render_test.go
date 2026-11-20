@@ -2,9 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRenderInstallConfig(t *testing.T) {
@@ -50,5 +55,59 @@ func TestRenderInstallConfig(t *testing.T) {
 	}
 	if len(change.lines) != 5 || bytes.Contains(change.updated, []byte("52731")) {
 		t.Errorf("port change missed generated hooks: %+v", change.lines)
+	}
+}
+
+func TestInstallFirewallCleanupChecksEveryRuleBeforeDeleting(t *testing.T) {
+	bin := t.TempDir()
+	logPath := filepath.Join(bin, "calls")
+	t.Setenv("PATH", bin)
+	t.Setenv("WGK_TEST_FIREWALL_LOG", logPath)
+	t.Setenv("WGK_TEST_FIREWALL_PROBE_ERROR", "yes")
+	const tool = `#!/bin/sh
+tool=${0##*/}
+printf '%s %s\n' "$tool" "$*" >> "$WGK_TEST_FIREWALL_LOG"
+case "$tool $*" in
+    *' -S '*) exit 0 ;;
+    'iptables -C INPUT '*) exit 0 ;;
+    'ip6tables -t nat -C POSTROUTING '*)
+        if [ "$WGK_TEST_FIREWALL_PROBE_ERROR" = yes ]; then
+            echo 'Permission denied' >&2
+            exit 1
+        fi ;;
+    'iptables -D INPUT '*) exit 0 ;;
+esac
+echo 'Bad rule (does a matching rule exist in that chain?).' >&2
+exit 1
+`
+	for _, name := range []string{"iptables", "ip6tables"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(tool), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	settings := installSettings{IPv4: netip.MustParsePrefix("10.66.66.1/24"), IPv6: netip.MustParsePrefix("fd42:42:42::1/64")}
+	rules := installFirewallRules("wg0", settings, "eth0", "eth0", 52731)
+	if err := cleanupInstallFirewall(cmd, rules); err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("cleanup error = %v, want a rule inspection error", err)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(log, []byte(" -D ")) {
+		t.Fatalf("cleanup changed rules before completing inspection:\n%s", log)
+	}
+	t.Setenv("WGK_TEST_FIREWALL_PROBE_ERROR", "no")
+	if err := cleanupInstallFirewall(cmd, rules); err != nil {
+		t.Fatal(err)
+	}
+	log, err = os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(log, []byte(" -D ")) != 1 || !bytes.Contains(log, []byte("iptables -D INPUT -p udp --dport 52731 -j ACCEPT -m comment --comment wgk-wg0\n")) {
+		t.Fatalf("cleanup did not delete exactly the present WireGuard rule:\n%s", log)
 	}
 }
