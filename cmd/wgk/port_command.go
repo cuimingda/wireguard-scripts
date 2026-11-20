@@ -64,12 +64,10 @@ func newPortCommand() *cobra.Command {
 			RunE:   runPrivilegedPortRead,
 		},
 		setInterface,
-		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(port string) []string {
-			return []string{"-H", "-uln", "sport = :" + port}
+		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(cmd *cobra.Command, port string) error {
+			return runPrivileged(cmd, "ss", "-H", "-uln", "sport = :"+port)
 		}),
-		newPortCheckCommand("iptables", "Check the UDP INPUT rule for the WireGuard port", "iptables", func(port string) []string {
-			return []string{"-C", "INPUT", "-p", "udp", "--dport", port, "-j", "ACCEPT"}
-		}),
+		newPortCheckCommand("iptables", "Check the UDP INPUT rule for the WireGuard port", "iptables", checkIPTablesPort),
 	)
 	return command
 }
@@ -128,7 +126,7 @@ func printListenPort(output io.Writer, path string, data []byte) error {
 	return err
 }
 
-func newPortCheckCommand(name, description, executable string, commandArgs func(string) []string) *cobra.Command {
+func newPortCheckCommand(name, description, executable string, check func(*cobra.Command, string) error) *cobra.Command {
 	return &cobra.Command{
 		Use:   name,
 		Short: description,
@@ -138,12 +136,38 @@ func newPortCheckCommand(name, description, executable string, commandArgs func(
 			if err != nil {
 				return err
 			}
-			if err := runPrivileged(cmd, executable, commandArgs(port)...); err != nil {
+			if err := check(cmd, port); err != nil {
 				return preserveProcessExit(fmt.Errorf("could not run %s: %w", executable, err))
 			}
 			return nil
 		},
 	}
+}
+
+func checkIPTablesPort(cmd *cobra.Command, port string) error {
+	check := func(args []string) (*bytes.Buffer, *bytes.Buffer, error) {
+		var stdout, stderr bytes.Buffer
+		process := privilegedCommand(cmd, "iptables", args...)
+		process.Stdout = &stdout
+		process.Stderr = &stderr
+		err := process.Run()
+		return &stdout, &stderr, err
+	}
+
+	args := []string{"-C", "INPUT", "-p", "udp", "--dport", port, "-j", "ACCEPT"}
+	stdout, stderr, err := check(args)
+	if errors.Is(preserveProcessExit(err), exitStatus(1)) {
+		// The check must include the owner match to find a rule created by wgk install.
+		taggedArgs := append(args, "-m", "comment", "--comment", installFirewallOwner)
+		taggedOut, taggedErr, taggedCheckErr := check(taggedArgs)
+		if !errors.Is(preserveProcessExit(taggedCheckErr), exitStatus(1)) {
+			stdout, stderr, err = taggedOut, taggedErr, taggedCheckErr
+		}
+	}
+
+	_, stdoutErr := stdout.WriteTo(cmd.OutOrStdout())
+	_, stderrErr := stderr.WriteTo(cmd.ErrOrStderr())
+	return errors.Join(err, stdoutErr, stderrErr)
 }
 
 func getPortForCheck(cmd *cobra.Command) (string, error) {

@@ -592,6 +592,11 @@ function manageMenu() {
 # Check for root, virt, OS...
 initialCheck
 
+if [[ -e /etc/wireguard/wgk-install.yaml || -L /etc/wireguard/wgk-install.yaml ]]; then
+	echo "WireGuard is managed by wgk. Run wgk install to check or resume the installation."
+	exit 1
+fi
+
 # Check if WireGuard is already installed and load params
 if [[ -e /etc/wireguard/params ]]; then
 	source /etc/wireguard/params

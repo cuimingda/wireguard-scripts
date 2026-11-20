@@ -28,15 +28,28 @@ type listenPortLineChange struct {
 }
 
 type listenPortEdit struct {
-	start, end     int
-	prefix, suffix string
+	start, end                   int
+	prefix, betweenPorts, suffix string
 }
+
+func (edit listenPortEdit) replacement(port string) string {
+	if edit.betweenPorts != "" {
+		return port + edit.betweenPorts + port
+	}
+	return port
+}
+
+const ownedPortRule = ` INPUT -p udp --dport ([0-9]+) -j ACCEPT -m comment --comment ` + installFirewallOwner
 
 var (
 	iptablesPortHook = regexp.MustCompile(
-		`^[[:space:]]*iptables[[:space:]]+(-[ID])[[:space:]]+INPUT[[:space:]]+-p[[:space:]]+udp[[:space:]]+` +
+		`^[[:space:]]*(ip6?tables)[[:space:]]+(-[ID])[[:space:]]+INPUT[[:space:]]+-p[[:space:]]+udp[[:space:]]+` +
 			`--dport[[:space:]]+([0-9]+)[[:space:]]+-j[[:space:]]+ACCEPT[[:space:]]*$`,
 	)
+	ownedPortUpHook = regexp.MustCompile(`^[[:space:]]*(ip6?tables) -C` + ownedPortRule +
+		` \|\| (ip6?tables) -I` + ownedPortRule + `[[:space:]]*$`)
+	ownedPortDownHook = regexp.MustCompile(`^[[:space:]]*if (ip6?tables) -C` + ownedPortRule +
+		`; then (ip6?tables) -D` + ownedPortRule + `; fi[[:space:]]*$`)
 	firewalldPortHook = regexp.MustCompile(
 		`^[[:space:]]*firewall-cmd[[:space:]]+--zone=public[[:space:]]+--add-interface=[A-Za-z0-9_=+.-]+` +
 			`[[:space:]]*&&[[:space:]]*firewall-cmd[[:space:]]+--(add|remove)-port[[:space:]]+([0-9]+)/udp` +
@@ -131,13 +144,14 @@ func planListenPortChange(data []byte, newPort string) (listenPortChange, error)
 
 		start, end := field.valueOffset+edit.start, field.valueOffset+edit.end
 		updated = append(updated, data[previousEnd:start]...)
-		updated = append(updated, newPort...)
+		replacement := edit.replacement(newPort)
+		updated = append(updated, replacement...)
 		previousEnd = end
 		// Render only known syntax and port numbers. Hooks and comments can contain secrets.
 		change.lines = append(change.lines, listenPortLineChange{
 			lineNumber: field.lineNumber,
-			before:     edit.prefix + oldText + edit.suffix,
-			after:      edit.prefix + newPort + edit.suffix,
+			before:     edit.prefix + edit.replacement(oldText) + edit.suffix,
+			after:      edit.prefix + replacement + edit.suffix,
 		})
 	}
 	change.updated = append(updated, data[previousEnd:]...)
@@ -146,24 +160,49 @@ func planListenPortChange(data []byte, newPort string) (listenPortChange, error)
 
 func listenPortHookEdit(field wireGuardField, oldPort int) (listenPortEdit, bool) {
 	var label, iptablesAction, firewalldAction string
+	var ownedPortHook *regexp.Regexp
 	switch {
 	case equalASCIIFold(field.key, "postup"):
 		label, iptablesAction, firewalldAction = "PostUp", "-I", "add"
+		ownedPortHook = ownedPortUpHook
 	case equalASCIIFold(field.key, "postdown"):
 		label, iptablesAction, firewalldAction = "PostDown", "-D", "remove"
+		ownedPortHook = ownedPortDownHook
 	default:
 		return listenPortEdit{}, false
 	}
 
 	value := field.value
+	if match := ownedPortHook.FindSubmatchIndex(value); match != nil &&
+		bytes.Equal(value[match[2]:match[3]], value[match[6]:match[7]]) &&
+		decimalListenPort(value[match[4]:match[5]]) == oldPort && decimalListenPort(value[match[8]:match[9]]) == oldPort {
+		return listenPortEdit{
+			start:        match[4],
+			end:          match[9],
+			prefix:       label + " = " + string(bytes.TrimLeft(value[:match[4]], wireGuardWhitespace)),
+			betweenPorts: string(value[match[5]:match[8]]),
+			suffix:       string(bytes.TrimRight(value[match[9]:], wireGuardWhitespace)),
+		}, true
+	}
 	if match := iptablesPortHook.FindSubmatchIndex(value); match != nil &&
-		bytes.Equal(value[match[2]:match[3]], []byte(iptablesAction)) && decimalListenPort(value[match[4]:match[5]]) == oldPort {
-		return listenPortEdit{match[4], match[5], label + " = iptables " + iptablesAction + " INPUT -p udp --dport ", " -j ACCEPT"}, true
+		bytes.Equal(value[match[4]:match[5]], []byte(iptablesAction)) && decimalListenPort(value[match[6]:match[7]]) == oldPort {
+		executable := string(value[match[2]:match[3]])
+		return listenPortEdit{
+			start:  match[6],
+			end:    match[7],
+			prefix: label + " = " + executable + " " + iptablesAction + " INPUT -p udp --dport ",
+			suffix: " -j ACCEPT",
+		}, true
 	}
 	if match := firewalldPortHook.FindSubmatchIndex(value); match != nil &&
 		bytes.Equal(value[match[2]:match[3]], []byte(firewalldAction)) && decimalListenPort(value[match[4]:match[5]]) == oldPort &&
 		bytes.Equal(value[match[6]:match[7]], []byte(firewalldAction)) {
-		return listenPortEdit{match[4], match[5], label + " = firewall-cmd --" + firewalldAction + "-port ", "/udp"}, true
+		return listenPortEdit{
+			start:  match[4],
+			end:    match[5],
+			prefix: label + " = firewall-cmd --" + firewalldAction + "-port ",
+			suffix: "/udp",
+		}, true
 	}
 	return listenPortEdit{}, false
 }

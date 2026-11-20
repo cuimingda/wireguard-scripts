@@ -10,6 +10,11 @@ func TestPlanListenPortChange(t *testing.T) {
 	const (
 		iptablesUp     = "iptables -I INPUT -p udp --dport "
 		iptablesDown   = "iptables -D INPUT -p udp --dport "
+		ip6tablesUp    = "ip6tables -I INPUT -p udp --dport "
+		ip6tablesDown  = "ip6tables -D INPUT -p udp --dport "
+		ownedArgs      = " INPUT -p udp --dport 51820 -j ACCEPT -m comment --comment wgk-wg0"
+		ownedUp        = "PostUp = iptables -C" + ownedArgs + " || iptables -I" + ownedArgs
+		ownedDown      = "PostDown = if ip6tables -C" + ownedArgs + "; then ip6tables -D" + ownedArgs + "; fi"
 		firewalldUp    = "firewall-cmd --zone=public --add-interface=private-interface && firewall-cmd --add-port "
 		firewalldDown  = "firewall-cmd --zone=public --add-interface=private-interface && firewall-cmd --remove-port "
 		richRuleAdd    = "/udp && firewall-cmd --add-rich-rule='rule family=ipv4 source address=10.0.0.0/24 masquerade'"
@@ -43,6 +48,26 @@ func TestPlanListenPortChange(t *testing.T) {
 			preview: &listenPortLineChange{before: "PostDown = " + iptablesDown + "51820 -j ACCEPT", after: "PostDown = " + iptablesDown + "45555 -j ACCEPT"},
 		},
 		{
+			before:  "PostUp = " + ip6tablesUp + "51820 -j ACCEPT",
+			after:   "PostUp = " + ip6tablesUp + "45555 -j ACCEPT",
+			preview: &listenPortLineChange{before: "PostUp = " + ip6tablesUp + "51820 -j ACCEPT", after: "PostUp = " + ip6tablesUp + "45555 -j ACCEPT"},
+		},
+		{
+			before:  "PostDown = " + ip6tablesDown + "51820 -j ACCEPT",
+			after:   "PostDown = " + ip6tablesDown + "45555 -j ACCEPT",
+			preview: &listenPortLineChange{before: "PostDown = " + ip6tablesDown + "51820 -j ACCEPT", after: "PostDown = " + ip6tablesDown + "45555 -j ACCEPT"},
+		},
+		{
+			before:  ownedUp + " # hook-comment-secret",
+			after:   strings.ReplaceAll(ownedUp, "51820", "45555") + " # hook-comment-secret",
+			preview: &listenPortLineChange{before: ownedUp, after: strings.ReplaceAll(ownedUp, "51820", "45555")},
+		},
+		{
+			before:  ownedDown,
+			after:   strings.ReplaceAll(ownedDown, "51820", "45555"),
+			preview: &listenPortLineChange{before: ownedDown, after: strings.ReplaceAll(ownedDown, "51820", "45555")},
+		},
+		{
 			before:  "PostUp = " + firewalldUp + "51820" + richRuleAdd,
 			after:   "PostUp = " + firewalldUp + "45555" + richRuleAdd,
 			preview: &listenPortLineChange{before: "PostUp = firewall-cmd --add-port 51820/udp", after: "PostUp = firewall-cmd --add-port 45555/udp"},
@@ -56,6 +81,11 @@ func TestPlanListenPortChange(t *testing.T) {
 		{before: "PostUp = " + iptablesDown + "51820 -j ACCEPT"},
 		{before: "PostUp = " + iptablesUp + "51820 -j ACCEPT && echo hook-secret"},
 		{before: "PostUp = iptables -I INPUT -p tcp --dport 51820 -j ACCEPT"},
+		{before: "PostUp = " + ip6tablesUp + "51820 -j ACCEPT && echo hook-secret"},
+		{before: strings.Replace(ownedUp, "51820", "55555", 1)},
+		{before: strings.Replace(ownedDown, "ip6tables", "iptables", 1)},
+		{before: strings.ReplaceAll(ownedDown, "wgk-wg0", "custom-firewall")},
+		{before: ownedUp + " && echo hook-secret"},
 		{before: "PostDown = " + firewalldDown + "51820" + richRuleAdd},
 		{before: "[Peer]"},
 		{before: "PostUp = " + iptablesUp + "51820 -j ACCEPT"},

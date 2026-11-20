@@ -3,7 +3,7 @@
 ![Lint](https://github.com/angristan/wireguard-install/workflows/Lint/badge.svg)
 [![Say Thanks!](https://img.shields.io/badge/Say%20Thanks-!-1EAEDB.svg)](https://saythanks.io/to/angristan)
 
-Use `wgk` to manage WireGuard services on Ubuntu and `install.sh` to set up a [WireGuard](https://www.wireguard.com/) VPN on Linux.
+Use `wgk` to set up and manage [WireGuard](https://www.wireguard.com/) on Ubuntu. The interactive `install.sh` also supports other Linux distributions.
 
 WireGuard is a point-to-point VPN that can be used in different ways. Here, we mean a VPN as in: the client will forward all its traffic through an encrypted tunnel to the server.
 The server will apply NAT to the client's traffic so it will appear as if the client is browsing the web with the server's IP.
@@ -30,7 +30,7 @@ Distributions supported by `install.sh`:
 
 ## Usage
 
-Clone this repository on the server and run the installer from the checkout. Answer the prompts to configure WireGuard.
+For the interactive installer, clone this repository on the server and run it from the checkout. Answer the prompts to configure WireGuard.
 
 ```bash
 ./install.sh
@@ -48,7 +48,7 @@ After cloning the repository on Ubuntu (`amd64` or `arm64`), run this from the c
 ./setup.sh
 ```
 
-By default, if `/usr/local/bin/wgk` already exists as an executable file, setup exits successfully before running APT or Make. Otherwise it installs `make`, `golang-1.26-go`, and `ca-certificates` through APT and runs `make install`. If APT cannot find the Go package on Ubuntu 22.04 or 24.04, setup tries adding the official `updates` source for the `universe` component. Installing prerequisites requires root or `sudo` access. Use `./install.sh` separately to configure WireGuard.
+By default, if `/usr/local/bin/wgk` already exists as an executable file, setup exits successfully before running APT or Make. Otherwise it installs `make`, `golang-1.26-go`, and `ca-certificates` through APT and runs `make install`. If APT cannot find the Go package on Ubuntu 22.04 or 24.04, setup tries adding the official `updates` source for the `universe` component. Installing prerequisites requires root or `sudo` access.
 
 To run the APT dependency installation and `make install` again even when `wgk` is already executable, run this command.
 
@@ -66,6 +66,16 @@ make install
 ```
 
 `make install` builds with `GOTOOLCHAIN=local` and uses `/usr/lib/go-1.26/bin/go` by default. To use another installed Go 1.26.0 or newer, run `make install GO=/path/to/go`. The build may need HTTPS access to fetch Go modules. Installation replaces `/usr/local/bin/wgk` after a successful build and requires write access or `sudo`. If `DESTDIR` is set, it prefixes the target path used by both `make install` and `./setup.sh`.
+
+### Configure WireGuard on a new Ubuntu server
+
+```bash
+wgk install
+```
+
+Run this once on an Ubuntu server with systemd and public IPv4 and IPv6 connectivity. `wgk` selects the server's public IPv4 as its endpoint and exits with an error if it cannot find one. It installs missing WireGuard runtime tools via APT, creates `/etc/wireguard/wg0.conf` with a fresh server key, and enables forwarding, NAT, and inbound UDP for both address families. The built-in defaults are UDP port `51820` and tunnel addresses `10.66.66.1/24` and `fd42:42:42::1/64`. The command uses `sudo` when run by a non-root user.
+
+Installation completes when `wg-quick@wg0.service` is active, enabled at boot, and listening on the configured port. Repeating `wgk install` after completion prints an already-configured notice and exits successfully. Rerun `wgk install` after a failed attempt to reuse any generated configuration. The command stops when it finds another WireGuard configuration on the server. Client enrollment is a separate operation.
 
 ### Inspect the build and runtime environment
 
@@ -131,7 +141,7 @@ wgk port udp
 wgk port iptables
 ```
 
-Both commands call `wgk port get` and require a five-digit port from `10000` to `65535`. `wgk port udp` uses `ss` to list matching local UDP sockets. `wgk port iptables` uses `iptables -C` to check for the UDP `ACCEPT` rule in the `INPUT` chain. They pass through the underlying command's stdout, stderr, and exit status.
+Both commands call `wgk port get` and require a five-digit port from `10000` to `65535`. `wgk port udp` uses `ss` to list matching local UDP sockets. `wgk port iptables` uses `iptables -C` to check for a matching IPv4 UDP `ACCEPT` rule in the `INPUT` chain, including the rule created by `wgk install`. They pass through the underlying command's stdout, stderr, and exit status.
 
 ### Generate a random listen port
 
@@ -170,7 +180,7 @@ wgk random
 
 `wgk random` generates a port different from the current one, stops the configured service, applies the change with `port set --force`, and starts the same service. It prints the preview and applies it without prompting. A failed step stops the sequence before any later steps run. For non-root use without a terminal, `sudo` must already be able to authorize the commands without prompting.
 
-After changing the port, update the client endpoints separately. The installer gets the endpoint port for future clients from `/etc/wireguard/params`. Existing clients use the `Endpoint` in their own configuration files.
+After changing the port, update the client endpoints separately. The interactive `install.sh` gets the endpoint port for future clients from `/etc/wireguard/params`. Existing clients use the `Endpoint` in their own configuration files.
 
 ### Select the interface
 

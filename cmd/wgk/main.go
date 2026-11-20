@@ -41,6 +41,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	root.AddCommand(
 		newConfigCommand(),
 		newEnvCommand(),
+		newInstallCommand(),
 		newIPCommand(),
 		newPortCommand(),
 		newRandomCommand(),
