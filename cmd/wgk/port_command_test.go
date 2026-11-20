@@ -7,10 +7,26 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+func TestPortGenerateInitialDoesNotReadInterfaceConfig(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	writeTestConfig(t, configHome, "interface: ../wg0\n")
+	checkStatus(t, []string{"port", "generate"}, "", "invalid interface name in configuration", 2)
+
+	var stdout, stderr bytes.Buffer
+	if status := run(context.Background(), []string{"port", "generate", "--initial"}, nil, &stdout, &stderr); status != 0 {
+		t.Fatalf("port generate --initial exited %d: %s", status, stderr.String())
+	}
+	if port := strings.TrimSuffix(stdout.String(), "\n"); !validMaintenancePort(port) {
+		t.Errorf("generated port = %q, want a port from 10000 to 65535", stdout.String())
+	}
+}
 
 func TestCheckIPTablesPort(t *testing.T) {
 	const untaggedArgs = "-C INPUT -p udp --dport 51820 -j ACCEPT"

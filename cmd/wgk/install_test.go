@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,7 +13,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const installTestPrivateKey = "AAIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2A="
+const (
+	installTestPrivateKey = "AAIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2A="
+	installTestPort       = 52731
+)
 
 func TestInstallRetriesFailedStartAndStopsAfterSuccess(t *testing.T) {
 	paths, calls, cmd, stdout := installTestEnvironment(t)
@@ -25,20 +29,31 @@ func TestInstallRetriesFailedStartAndStopsAfterSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("WGK_TEST_INSTALL_START_CODE", "1")
-	if err := provisionWireGuard(cmd, paths, resolveInterface); err == nil || !strings.Contains(err.Error(), "wg-quick@wg1.service") {
+	generations := 0
+	generatePort := func(*cobra.Command) (int, error) {
+		generations++
+		return installTestPort, nil
+	}
+	if err := provisionWireGuard(cmd, paths, resolveInterface, generatePort); err == nil || !strings.Contains(err.Error(), "wg-quick@wg1.service") {
 		t.Fatalf("install returned %v, want a service startup error", err)
+	}
+	if generations != 1 {
+		t.Fatalf("generated %d ports, want 1", generations)
 	}
 	assertInstallState(t, paths, name, false)
 	originalConfig := readInstallTestFile(t, configPath)
 	if !bytes.Contains(originalConfig, []byte("PrivateKey = "+installTestPrivateKey)) {
 		t.Fatal("the staged configuration does not contain the generated server key")
 	}
+	if port, err := parseListenPort(originalConfig); err != nil || port != installTestPort {
+		t.Fatalf("staged ListenPort = %d, %v, want %d", port, err, installTestPort)
+	}
 	if info, err := os.Stat(configPath); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("expected a private server configuration: info = %v, error = %v", info, err)
 	}
 	t.Setenv("WGK_TEST_INSTALL_START_CODE", "0")
 	setInstallTestInterface(t, "wg2")
-	if err := provisionWireGuard(cmd, paths, resolveInterface); err != nil {
+	if err := provisionWireGuard(cmd, paths, resolveInterface, unexpectedInstallPortGeneration(t)); err != nil {
 		t.Fatalf("retry install: %v", err)
 	}
 	state := assertInstallState(t, paths, name, true)
@@ -76,7 +91,7 @@ func TestInstallRetriesFailedStartAndStopsAfterSuccess(t *testing.T) {
 	setInstallTestInterface(t, "wg3")
 	t.Setenv("WGK_TEST_INSTALL_START_CODE", "1")
 	paths.systemdDir = filepath.Join(t.TempDir(), "not-running")
-	if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t)); err != nil {
+	if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t), unexpectedInstallPortGeneration(t)); err != nil {
 		t.Fatalf("repeat successful install: %v", err)
 	}
 	if !strings.Contains(strings.ToLower(stdout.String()), "already") {
@@ -103,6 +118,7 @@ func TestInstallReadsLegacyStateWithoutInterface(t *testing.T) {
 	t.Run("pending", func(t *testing.T) {
 		paths, calls, cmd, _ := installTestEnvironment(t)
 		setInstallTestInterface(t, "wg1")
+		t.Setenv("WGK_TEST_INSTALL_LISTEN_PORT", "51820")
 		statePath := filepath.Join(paths.wireGuardDir, "wgk-install.yaml")
 		if err := os.WriteFile(statePath, []byte(legacy+"false\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -112,7 +128,7 @@ func TestInstallReadsLegacyStateWithoutInterface(t *testing.T) {
 		if err := os.WriteFile(configPath, config, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t)); err != nil {
+		if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t), unexpectedInstallPortGeneration(t)); err != nil {
 			t.Fatalf("resume legacy installation: %v", err)
 		}
 		assertInstallState(t, paths, "wg0", true)
@@ -131,7 +147,7 @@ func TestInstallReadsLegacyStateWithoutInterface(t *testing.T) {
 		if err := os.WriteFile(statePath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t)); err != nil {
+		if err := provisionWireGuard(cmd, paths, unexpectedInstallInterfaceResolution(t), unexpectedInstallPortGeneration(t)); err != nil {
 			t.Fatalf("check legacy completed installation: %v", err)
 		}
 		if !strings.Contains(strings.ToLower(stdout.String()), "already") {
@@ -150,7 +166,7 @@ func TestInstallRequiresPublicIPv4BeforeWritingConfiguration(t *testing.T) {
 	paths, calls, cmd, _ := installTestEnvironment(t)
 	t.Setenv("WGK_TEST_INSTALL_IPV4", "10.0.0.2")
 	t.Setenv("WGK_TEST_INSTALL_IPV4_UPLINK", "wgk-test-uplink")
-	if err := provisionWireGuard(cmd, paths, resolveInterface); err == nil || !strings.Contains(strings.ToLower(err.Error()), "public ipv4") {
+	if err := provisionWireGuard(cmd, paths, resolveInterface, unexpectedInstallPortGeneration(t)); err == nil || !strings.Contains(strings.ToLower(err.Error()), "public ipv4") {
 		t.Fatalf("install returned %v, want an error about the missing public IPv4", err)
 	}
 	for _, path := range []string{
@@ -181,7 +197,7 @@ func TestInstallRejectsInvalidConfiguredInterfaceBeforeRunningTools(t *testing.T
 	if err := os.WriteFile(configPath, []byte("interface: ../wg0\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := provisionWireGuard(cmd, paths, resolveInterface); err == nil || !strings.Contains(err.Error(), "invalid interface name") {
+	if err := provisionWireGuard(cmd, paths, resolveInterface, unexpectedInstallPortGeneration(t)); err == nil || !strings.Contains(err.Error(), "invalid interface name") {
 		t.Fatalf("install returned %v, want an error about the invalid interface name", err)
 	}
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
@@ -191,8 +207,9 @@ func TestInstallRejectsInvalidConfiguredInterfaceBeforeRunningTools(t *testing.T
 
 func TestInstallVerifiesTheRunningInterfaceBeforeRecordingSuccess(t *testing.T) {
 	paths, _, cmd, _ := installTestEnvironment(t)
-	t.Setenv("WGK_TEST_INSTALL_LISTEN_PORT", "51821")
-	if err := provisionWireGuard(cmd, paths, resolveInterface); err == nil || !strings.Contains(err.Error(), "configured WireGuard port") {
+	t.Setenv("WGK_TEST_INSTALL_LISTEN_PORT", strconv.Itoa(installTestPort+1))
+	generatePort := func(*cobra.Command) (int, error) { return installTestPort, nil }
+	if err := provisionWireGuard(cmd, paths, resolveInterface, generatePort); err == nil || !strings.Contains(err.Error(), "configured WireGuard port") {
 		t.Fatalf("install returned %v, want an error about the interface listen port", err)
 	}
 	assertInstallState(t, paths, "wg0", false)
@@ -207,7 +224,7 @@ func TestInstallProtectsExistingWireGuardConfiguration(t *testing.T) {
 			if err := os.WriteFile(legacy, []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := provisionWireGuard(cmd, paths, resolveInterface); err == nil {
+			if err := provisionWireGuard(cmd, paths, resolveInterface, unexpectedInstallPortGeneration(t)); err == nil {
 				t.Fatalf("install unexpectedly accepted the existing file %s", name)
 			}
 			if got := readInstallTestFile(t, legacy); string(got) != content {
@@ -285,7 +302,7 @@ esac
 	t.Setenv("WGK_TEST_INSTALL_IPV4", "198.71.0.1")
 	t.Setenv("WGK_TEST_INSTALL_IPV4_UPLINK", "eth0")
 	t.Setenv("WGK_TEST_INSTALL_PRIVATE_KEY", installTestPrivateKey)
-	t.Setenv("WGK_TEST_INSTALL_LISTEN_PORT", "51820")
+	t.Setenv("WGK_TEST_INSTALL_LISTEN_PORT", strconv.Itoa(installTestPort))
 	t.Setenv("WGK_TEST_INSTALL_START_CODE", "0")
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
@@ -307,6 +324,14 @@ func unexpectedInstallInterfaceResolution(t *testing.T) func() (string, error) {
 	return func() (string, error) {
 		t.Fatal("install resolved the current interface instead of using recorded state")
 		return "", nil
+	}
+}
+
+func unexpectedInstallPortGeneration(t *testing.T) func(*cobra.Command) (int, error) {
+	t.Helper()
+	return func(*cobra.Command) (int, error) {
+		t.Fatal("install tried to generate a new port")
+		return 0, nil
 	}
 }
 

@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	minMaintenancePort   = 10000
-	maxMaintenancePort   = 65535
-	portGetInterfaceFlag = "interface"
+	minMaintenancePort      = 10000
+	maxMaintenancePort      = 65535
+	portGetInterfaceFlag    = "interface"
+	portGenerateInitialFlag = "initial"
 )
 
 func newPortCommand() *cobra.Command {
@@ -52,14 +53,17 @@ func newPortCommand() *cobra.Command {
 	}
 	get.Flags().String(portGetInterfaceFlag, "", "Use the interface already resolved by the calling command")
 	_ = get.Flags().MarkHidden(portGetInterfaceFlag)
+	generate := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate a random port different from the configured listen port",
+		Args:  cobra.NoArgs,
+		RunE:  runPortGenerate,
+	}
+	generate.Flags().Bool(portGenerateInitialFlag, false, "Generate a port before the interface has been configured")
+	_ = generate.Flags().MarkHidden(portGenerateInitialFlag)
 	command.AddCommand(
 		get,
-		&cobra.Command{
-			Use:   "generate",
-			Short: "Generate a random port different from the configured listen port",
-			Args:  cobra.NoArgs,
-			RunE:  runPortGenerate,
-		},
+		generate,
 		set,
 		&cobra.Command{
 			Use:    "read <interface>",
@@ -200,6 +204,14 @@ func getPortForCheck(cmd *cobra.Command, name string) (string, error) {
 }
 
 func runPortGenerate(cmd *cobra.Command, _ []string) error {
+	initial, err := cmd.Flags().GetBool(portGenerateInitialFlag)
+	if err != nil {
+		return err
+	}
+	if initial {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), randomPortExcluding(0))
+		return err
+	}
 	name, err := resolveInterface()
 	if err != nil {
 		return err

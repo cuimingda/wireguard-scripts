@@ -34,7 +34,6 @@ type installPaths struct {
 type installSettings struct {
 	IPv4 netip.Prefix
 	IPv6 netip.Prefix
-	Port int
 }
 
 type installState struct {
@@ -70,7 +69,7 @@ var systemInstallPaths = installPaths{
 
 func runInstall(cmd *cobra.Command, _ []string) error {
 	if os.Geteuid() == 0 {
-		return provisionWireGuard(cmd, systemInstallPaths, resolveInterface)
+		return provisionWireGuard(cmd, systemInstallPaths, resolveInterface, generateInstallPort)
 	}
 	binary, err := os.Executable()
 	if err != nil {
@@ -95,10 +94,10 @@ func runPrivilegedInstall(cmd *cobra.Command, args []string) error {
 			return "", installNeedsInterface
 		}
 		return args[0], nil
-	})
+	}, generateInstallPort)
 }
 
-func provisionWireGuard(cmd *cobra.Command, paths installPaths, resolveName func() (string, error)) error {
+func provisionWireGuard(cmd *cobra.Command, paths installPaths, resolveName func() (string, error), generatePort func(*cobra.Command) (int, error)) error {
 	if err := os.MkdirAll(paths.wireGuardDir, 0o700); err != nil {
 		return err
 	}
@@ -171,7 +170,7 @@ func provisionWireGuard(cmd *cobra.Command, paths installPaths, resolveName func
 		}
 		state = network
 	}
-	port, err := prepareInstallConfig(cmd, filepath.Join(paths.wireGuardDir, state.Interface+".conf"), state, settings)
+	port, err := prepareInstallConfig(cmd, filepath.Join(paths.wireGuardDir, state.Interface+".conf"), state, settings, generatePort)
 	if err != nil {
 		return err
 	}
@@ -264,7 +263,6 @@ func loadInstallSettings() (installSettings, error) {
 		Install struct {
 			IPv4 string
 			IPv6 string
-			Port int
 		}
 	}
 	if err := decodeConfigYAML(defaultConfigYAML, &defaults); err != nil {
@@ -272,9 +270,7 @@ func loadInstallSettings() (installSettings, error) {
 	}
 	settings.IPv4, _ = netip.ParsePrefix(defaults.Install.IPv4)
 	settings.IPv6, _ = netip.ParsePrefix(defaults.Install.IPv6)
-	settings.Port = defaults.Install.Port
-	if !settings.IPv4.Addr().Is4() || !settings.IPv4.Addr().IsPrivate() || !settings.IPv6.Addr().Is6() || !settings.IPv6.Addr().IsPrivate() ||
-		!validMaintenancePort(strconv.Itoa(settings.Port)) {
+	if !settings.IPv4.Addr().Is4() || !settings.IPv4.Addr().IsPrivate() || !settings.IPv6.Addr().Is6() || !settings.IPv6.Addr().IsPrivate() {
 		return installSettings{}, errors.New("invalid embedded WireGuard install defaults")
 	}
 	return settings, nil
@@ -312,7 +308,7 @@ func readInstallFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-func prepareInstallConfig(cmd *cobra.Command, path string, state installState, settings installSettings) (int, error) {
+func prepareInstallConfig(cmd *cobra.Command, path string, state installState, settings installSettings, generatePort func(*cobra.Command) (int, error)) (int, error) {
 	data, err := readInstallFile(path)
 	if err == nil {
 		if !bytes.HasPrefix(data, []byte(installConfigMark)) {
@@ -321,6 +317,10 @@ func prepareInstallConfig(cmd *cobra.Command, path string, state installState, s
 		return parseListenPort(data)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	port, err := generatePort(cmd)
+	if err != nil {
 		return 0, err
 	}
 	output, err := installCommandOutput(cmd, "wg", "genkey")
@@ -332,11 +332,27 @@ func prepareInstallConfig(cmd *cobra.Command, path string, state installState, s
 	if err != nil || len(decoded) != 32 || base64.StdEncoding.EncodeToString(decoded) != key {
 		return 0, errors.New("wg genkey did not return a valid WireGuard key")
 	}
-	config := append([]byte(installConfigMark), renderInstallConfig(state.Interface, settings, key, state.IPv4Uplink, state.IPv6Uplink)...)
+	config := append([]byte(installConfigMark), renderInstallConfig(state.Interface, settings, key, state.IPv4Uplink, state.IPv6Uplink, port)...)
 	if err := writeUserConfig(path, config, false); err != nil {
 		return 0, fmt.Errorf("create WireGuard server configuration %s: %w", path, err)
 	}
-	return settings.Port, nil
+	return port, nil
+}
+
+func generateInstallPort(cmd *cobra.Command) (int, error) {
+	binary, err := os.Executable()
+	if err != nil {
+		return 0, fmt.Errorf("find wgk for port generation: %w", err)
+	}
+	output, err := installCommandOutput(cmd, binary, "port", "generate", "--"+portGenerateInitialFlag)
+	if err != nil {
+		return 0, fmt.Errorf("run wgk port generate: %w", err)
+	}
+	port := strings.TrimRight(string(output), "\n")
+	if !validMaintenancePort(port) {
+		return 0, errors.New("wgk port generate must return a five-digit port (10000-65535)")
+	}
+	return decimalListenPort([]byte(port)), nil
 }
 
 func startInstalledService(cmd *cobra.Command, name string, port int) error {

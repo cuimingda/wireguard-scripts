@@ -8,12 +8,12 @@ import (
 
 const installFirewallOwnerPrefix = "wgk-"
 
-func renderInstallConfig(name string, settings installSettings, privateKey, ipv4Uplink, ipv6Uplink string) []byte {
+func renderInstallConfig(name string, settings installSettings, privateKey, ipv4Uplink, ipv6Uplink string, port int) []byte {
 	var config strings.Builder
 	fmt.Fprintf(&config, "[Interface]\nAddress = %s, %s\nListenPort = %d\nPrivateKey = %s\n",
-		settings.IPv4, settings.IPv6, settings.Port, privateKey)
-	writeInstallFirewallHooks(&config, name, "iptables", ipv4Uplink, settings.IPv4.Masked(), settings.Port)
-	writeInstallFirewallHooks(&config, name, "ip6tables", ipv6Uplink, settings.IPv6.Masked(), settings.Port)
+		settings.IPv4, settings.IPv6, port, privateKey)
+	writeInstallFirewallHooks(&config, name, "iptables", ipv4Uplink, settings.IPv4.Masked(), port)
+	writeInstallFirewallHooks(&config, name, "ip6tables", ipv6Uplink, settings.IPv6.Masked(), port)
 	return []byte(config.String())
 }
 
