@@ -39,7 +39,7 @@ func (edit listenPortEdit) replacement(port string) string {
 	return port
 }
 
-const ownedPortRule = ` INPUT -p udp --dport ([0-9]+) -j ACCEPT -m comment --comment ` + installFirewallOwner
+const ownedPortRule = ` INPUT -p udp --dport ([0-9]+) -j ACCEPT -m comment --comment ` + installFirewallOwnerPrefix + `([^[:space:]]+)`
 
 var (
 	iptablesPortHook = regexp.MustCompile(
@@ -174,14 +174,15 @@ func listenPortHookEdit(field wireGuardField, oldPort int) (listenPortEdit, bool
 
 	value := field.value
 	if match := ownedPortHook.FindSubmatchIndex(value); match != nil &&
-		bytes.Equal(value[match[2]:match[3]], value[match[6]:match[7]]) &&
-		decimalListenPort(value[match[4]:match[5]]) == oldPort && decimalListenPort(value[match[8]:match[9]]) == oldPort {
+		bytes.Equal(value[match[2]:match[3]], value[match[8]:match[9]]) &&
+		decimalListenPort(value[match[4]:match[5]]) == oldPort && decimalListenPort(value[match[10]:match[11]]) == oldPort &&
+		validInterfaceName(string(value[match[6]:match[7]])) && bytes.Equal(value[match[6]:match[7]], value[match[12]:match[13]]) {
 		return listenPortEdit{
 			start:        match[4],
-			end:          match[9],
+			end:          match[11],
 			prefix:       label + " = " + string(bytes.TrimLeft(value[:match[4]], wireGuardWhitespace)),
-			betweenPorts: string(value[match[5]:match[8]]),
-			suffix:       string(bytes.TrimRight(value[match[9]:], wireGuardWhitespace)),
+			betweenPorts: string(value[match[5]:match[10]]),
+			suffix:       string(bytes.TrimRight(value[match[11]:], wireGuardWhitespace)),
 		}, true
 	}
 	if match := iptablesPortHook.FindSubmatchIndex(value); match != nil &&

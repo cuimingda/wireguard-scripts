@@ -73,9 +73,11 @@ make install
 wgk install
 ```
 
-Run this once on an Ubuntu server with systemd and public IPv4 and IPv6 connectivity. `wgk` selects the server's public IPv4 as its endpoint and exits with an error if it cannot find one. It installs missing WireGuard runtime tools via APT, creates `/etc/wireguard/wg0.conf` with a fresh server key, and enables forwarding, NAT, and inbound UDP for both address families. The built-in defaults are UDP port `51820` and tunnel addresses `10.66.66.1/24` and `fd42:42:42::1/64`. The command uses `sudo` when run by a non-root user.
+Run this once on an Ubuntu server with systemd and public IPv4 and IPv6 connectivity. The first installation reads the same `interface` setting as `wgk service` and `wgk port`. It defaults to `wg0`. Set a custom interface with `wgk config set interface <name>` before installing.
 
-Installation completes when `wg-quick@wg0.service` is active, enabled at boot, and listening on the configured port. Repeating `wgk install` after completion prints an already-configured notice and exits successfully. Rerun `wgk install` after a failed attempt to reuse any generated configuration. The command stops when it finds another WireGuard configuration on the server. Client enrollment is a separate operation.
+`wgk` selects the server's public IPv4 as its endpoint and exits with an error if it cannot find one. It installs missing WireGuard runtime tools via APT, creates `/etc/wireguard/<interface>.conf` with a fresh server key, and enables forwarding, NAT, and inbound UDP for both address families. The built-in defaults are UDP port `51820` and tunnel addresses `10.66.66.1/24` and `fd42:42:42::1/64`. The command uses `sudo` when run by a non-root user.
+
+Installation completes when `wg-quick@<interface>.service` is active, enabled at boot, and listening on the configured port. Repeating `wgk install` after completion prints the installed interface and exits successfully, even if the `interface` setting has since changed. Rerun `wgk install` after a failed attempt to reuse the selected interface and any generated configuration. The command stops when it finds another WireGuard configuration on the server. Client enrollment is a separate operation.
 
 ### Inspect the build and runtime environment
 

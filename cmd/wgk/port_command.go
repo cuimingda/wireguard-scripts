@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	minMaintenancePort = 10000
-	maxMaintenancePort = 65535
+	minMaintenancePort   = 10000
+	maxMaintenancePort   = 65535
+	portGetInterfaceFlag = "interface"
 )
 
 func newPortCommand() *cobra.Command {
@@ -43,13 +44,16 @@ func newPortCommand() *cobra.Command {
 		RunE:   runPrivilegedPortSet,
 	}
 	setInterface.Flags().Bool("force", false, "Apply the port change without prompting")
+	get := &cobra.Command{
+		Use:   "get",
+		Short: "Print the configured WireGuard listen port",
+		Args:  cobra.NoArgs,
+		RunE:  runPortGet,
+	}
+	get.Flags().String(portGetInterfaceFlag, "", "Use the interface already resolved by the calling command")
+	_ = get.Flags().MarkHidden(portGetInterfaceFlag)
 	command.AddCommand(
-		&cobra.Command{
-			Use:   "get",
-			Short: "Print the configured WireGuard listen port",
-			Args:  cobra.NoArgs,
-			RunE:  runPortGet,
-		},
+		get,
 		&cobra.Command{
 			Use:   "generate",
 			Short: "Generate a random port different from the configured listen port",
@@ -64,7 +68,7 @@ func newPortCommand() *cobra.Command {
 			RunE:   runPrivilegedPortRead,
 		},
 		setInterface,
-		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(cmd *cobra.Command, port string) error {
+		newPortCheckCommand("udp", "List local UDP sockets for the WireGuard port", "ss", func(cmd *cobra.Command, _, port string) error {
 			return runPrivileged(cmd, "ss", "-H", "-uln", "sport = :"+port)
 		}),
 		newPortCheckCommand("iptables", "Check the UDP INPUT rule for the WireGuard port", "iptables", checkIPTablesPort),
@@ -73,6 +77,16 @@ func newPortCommand() *cobra.Command {
 }
 
 func runPortGet(cmd *cobra.Command, _ []string) error {
+	if cmd.Flags().Changed(portGetInterfaceFlag) {
+		name, err := cmd.Flags().GetString(portGetInterfaceFlag)
+		if err != nil {
+			return err
+		}
+		if !validInterfaceName(name) {
+			return errors.New("invalid interface name for port lookup")
+		}
+		return readConfiguredPort(cmd, name, cmd.OutOrStdout())
+	}
 	name, err := resolveInterface()
 	if err != nil {
 		return err
@@ -126,17 +140,21 @@ func printListenPort(output io.Writer, path string, data []byte) error {
 	return err
 }
 
-func newPortCheckCommand(name, description, executable string, check func(*cobra.Command, string) error) *cobra.Command {
+func newPortCheckCommand(name, description, executable string, check func(*cobra.Command, string, string) error) *cobra.Command {
 	return &cobra.Command{
 		Use:   name,
 		Short: description,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			port, err := getPortForCheck(cmd)
+			interfaceName, err := resolveInterface()
 			if err != nil {
 				return err
 			}
-			if err := check(cmd, port); err != nil {
+			port, err := getPortForCheck(cmd, interfaceName)
+			if err != nil {
+				return err
+			}
+			if err := check(cmd, interfaceName, port); err != nil {
 				return preserveProcessExit(fmt.Errorf("could not run %s: %w", executable, err))
 			}
 			return nil
@@ -144,7 +162,7 @@ func newPortCheckCommand(name, description, executable string, check func(*cobra
 	}
 }
 
-func checkIPTablesPort(cmd *cobra.Command, port string) error {
+func checkIPTablesPort(cmd *cobra.Command, name, port string) error {
 	check := func(args []string) (*bytes.Buffer, *bytes.Buffer, error) {
 		var stdout, stderr bytes.Buffer
 		process := privilegedCommand(cmd, "iptables", args...)
@@ -158,7 +176,7 @@ func checkIPTablesPort(cmd *cobra.Command, port string) error {
 	stdout, stderr, err := check(args)
 	if errors.Is(preserveProcessExit(err), exitStatus(1)) {
 		// The check must include the owner match to find a rule created by wgk install.
-		taggedArgs := append(args, "-m", "comment", "--comment", installFirewallOwner)
+		taggedArgs := append(args, "-m", "comment", "--comment", installFirewallOwnerPrefix+name)
 		taggedOut, taggedErr, taggedCheckErr := check(taggedArgs)
 		if !errors.Is(preserveProcessExit(taggedCheckErr), exitStatus(1)) {
 			stdout, stderr, err = taggedOut, taggedErr, taggedCheckErr
@@ -170,8 +188,8 @@ func checkIPTablesPort(cmd *cobra.Command, port string) error {
 	return errors.Join(err, stdoutErr, stderrErr)
 }
 
-func getPortForCheck(cmd *cobra.Command) (string, error) {
-	port, err := lookupConfiguredPort(cmd)
+func getPortForCheck(cmd *cobra.Command, name string) (string, error) {
+	port, err := lookupConfiguredPort(cmd, name)
 	if err != nil {
 		return "", err
 	}
@@ -219,12 +237,12 @@ func randomPortExcluding(current int) int {
 	return port
 }
 
-func lookupConfiguredPort(cmd *cobra.Command) (string, error) {
+func lookupConfiguredPort(cmd *cobra.Command, name string) (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("find wgk for port lookup: %w", err)
 	}
-	process := exec.CommandContext(cmd.Context(), executable, "port", "get")
+	process := exec.CommandContext(cmd.Context(), executable, "port", "get", "--"+portGetInterfaceFlag+"="+name)
 	process.Stdin = cmd.InOrStdin()
 	process.Stderr = cmd.ErrOrStderr()
 	output, err := process.Output()

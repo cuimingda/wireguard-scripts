@@ -14,7 +14,7 @@ import (
 
 func TestCheckIPTablesPort(t *testing.T) {
 	const untaggedArgs = "-C INPUT -p udp --dport 51820 -j ACCEPT"
-	const taggedArgs = untaggedArgs + " -m comment --comment wgk-wg0"
+	const taggedArgs = untaggedArgs + " -m comment --comment wgk-wg-2.alt"
 	for _, tc := range []struct {
 		name                   string
 		untagged, tagged, want int
@@ -58,7 +58,7 @@ exit "$WGK_IPTABLES_UNTAGGED_EXIT"
 			cmd.SetContext(context.Background())
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
-			err := preserveProcessExit(checkIPTablesPort(cmd, "51820"))
+			err := preserveProcessExit(checkIPTablesPort(cmd, "wg-2.alt", "51820"))
 			var wantErr error
 			if tc.want != 0 {
 				wantErr = exitStatus(tc.want)

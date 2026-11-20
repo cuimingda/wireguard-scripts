@@ -23,7 +23,7 @@ type installRoute struct {
 	Source netip.Addr `json:"prefsrc"`
 }
 
-func checkExistingInstallLinks(cmd *cobra.Command) error {
+func checkExistingInstallLinks(cmd *cobra.Command, name string) error {
 	output, err := installCommandOutput(cmd, "ip", "-j", "-d", "link", "show")
 	if err != nil {
 		return fmt.Errorf("check for existing WireGuard interfaces: %w", err)
@@ -38,16 +38,16 @@ func checkExistingInstallLinks(cmd *cobra.Command) error {
 		return fmt.Errorf("parse network interfaces: %w", err)
 	}
 	for _, link := range links {
-		if link.Name == installInterface || link.Info.Kind == "wireguard" {
+		if link.Name == name || link.Info.Kind == "wireguard" {
 			return fmt.Errorf("network interface %s already exists", link.Name)
 		}
 	}
 	return nil
 }
 
-func discoverInstallNetwork(cmd *cobra.Command) (installState, error) {
+func discoverInstallNetwork(cmd *cobra.Command, name string) (installState, error) {
 	// The route lookups only query the kernel. No packets are sent.
-	ipv4, err := lookupInstallRoute(cmd, "-4", "1.1.1.1")
+	ipv4, err := lookupInstallRoute(cmd, name, "-4", "1.1.1.1")
 	if err != nil {
 		return installState{}, fmt.Errorf("find public IPv4: %w", err)
 	}
@@ -55,17 +55,17 @@ func discoverInstallNetwork(cmd *cobra.Command) (installState, error) {
 	if err != nil {
 		return installState{}, err
 	}
-	ipv6, err := lookupInstallRoute(cmd, "-6", "2606:4700:4700::1111")
+	ipv6, err := lookupInstallRoute(cmd, name, "-6", "2606:4700:4700::1111")
 	if err != nil {
 		return installState{}, fmt.Errorf("find public IPv6 uplink: %w", err)
 	}
 	if !ipv6.Source.Is6() || serverIPScope(ipv6.Source) != "public" {
 		return installState{}, fmt.Errorf("no public IPv6 source address on %s", ipv6.Device)
 	}
-	return installState{Endpoint: endpoint.String(), IPv4Uplink: ipv4.Device, IPv6Uplink: ipv6.Device}, nil
+	return installState{Interface: name, Endpoint: endpoint.String(), IPv4Uplink: ipv4.Device, IPv6Uplink: ipv6.Device}, nil
 }
 
-func lookupInstallRoute(cmd *cobra.Command, family, destination string) (installRoute, error) {
+func lookupInstallRoute(cmd *cobra.Command, name, family, destination string) (installRoute, error) {
 	output, err := installCommandOutput(cmd, "ip", "-j", family, "route", "get", destination)
 	if err != nil {
 		return installRoute{}, fmt.Errorf("query %s route: %w", family, err)
@@ -74,14 +74,14 @@ func lookupInstallRoute(cmd *cobra.Command, family, destination string) (install
 	if err := json.Unmarshal(output, &routes); err != nil {
 		return installRoute{}, fmt.Errorf("parse %s route: %w", family, err)
 	}
-	if len(routes) != 1 || !validInstallUplink(routes[0].Device) {
+	if len(routes) != 1 || !validInstallUplink(routes[0].Device, name) {
 		return installRoute{}, fmt.Errorf("no usable %s uplink", family)
 	}
 	return routes[0], nil
 }
 
-func validInstallUplink(name string) bool {
-	return validInterfaceName(name) && name != installInterface && name != "lo"
+func validInstallUplink(uplink, name string) bool {
+	return validInterfaceName(uplink) && uplink != name && uplink != "lo"
 }
 
 func installPublicIPv4(route installRoute) (netip.Addr, error) {

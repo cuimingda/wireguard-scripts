@@ -6,6 +6,8 @@ import (
 	"regexp"
 )
 
+const wireGuardConfigDir = "/etc/wireguard"
+
 var interfaceName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 
 func resolveInterface() (string, error) {
@@ -20,7 +22,7 @@ func resolveInterface() (string, error) {
 }
 
 func wireGuardConfigPath(name string) string {
-	return filepath.Join("/etc/wireguard", name+".conf")
+	return filepath.Join(wireGuardConfigDir, name+".conf")
 }
 
 func validInterfaceName(name string) bool {
